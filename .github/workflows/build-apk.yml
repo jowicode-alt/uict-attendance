@@ -52,9 +52,51 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter analyze
 
+      - name: Restore release signing configuration
+        working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?Missing GitHub secret ANDROID_KEYSTORE_BASE64}"
+          : "${ANDROID_KEY_ALIAS:?Missing GitHub secret ANDROID_KEY_ALIAS}"
+          : "${ANDROID_KEY_PASSWORD:?Missing GitHub secret ANDROID_KEY_PASSWORD}"
+          : "${ANDROID_STORE_PASSWORD:?Missing GitHub secret ANDROID_STORE_PASSWORD}"
+          mkdir -p android/keystore
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/keystore/uict-attendance-upload.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_STORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=keystore/uict-attendance-upload.jks
+          EOF
+          test -s android/keystore/uict-attendance-upload.jks
+          test -s android/key.properties
+          echo "Release signing material restored for this ephemeral runner."
+
       - name: Build release APK
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter build apk --release
+
+      - name: Verify APK identity and integrity
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find build/app/outputs/apk -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          echo "APK: $APK"
+          ls -lh "$APK"
+          sha256sum "$APK"
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --verbose "$APK"
+          else
+            echo "apksigner not on PATH; skipping direct signature verification."
+          fi
 
       - name: Collect APK
         shell: bash
