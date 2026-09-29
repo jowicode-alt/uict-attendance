@@ -47,6 +47,12 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter pub get
 
+      - name: Inspect transformed attendance service
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          nl -ba lib/services/attendance_service.dart | sed -n '380,420p'
+
       - name: Analyze
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter analyze
