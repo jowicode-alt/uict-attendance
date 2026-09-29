@@ -36,6 +36,32 @@ s=s.replace("      'wifiSsid': wifiName,\n",'')
 s=s.replace('administratorsStream()', 'lecturersStream()')
 p.write_text(s)
 
+# Remove any legacy Wi-Fi validation block left in the archived source.
+def remove_if_block_containing(text, needle):
+    pos = text.find(needle)
+    if pos < 0:
+        return text
+    start = text.rfind('if (', 0, pos)
+    if start < 0:
+        start = text.rfind('if(', 0, pos)
+    brace = text.find('{', start, pos + 1)
+    if start < 0 or brace < 0:
+        return text
+    depth = 0
+    for i in range(brace, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[:start] + text[i + 1:]
+    return text
+
+s = remove_if_block_containing(s, 'allowedWifiSsids')
+s = re.sub(r'^.*_networkInfo.*$\\n?', '', s, flags=re.M)
+s = re.sub(r'^.*allowedWifiSsids.*$\\n?', '', s, flags=re.M)
+p.write_text(s)
+
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
 s=s.replace('  final _wifi = TextEditingController();\n','')
 s=s.replace("    _wifi.text = settings.allowedWifiSsids.join(', ');\n",'')
