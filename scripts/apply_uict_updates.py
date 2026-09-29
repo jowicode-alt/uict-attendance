@@ -1,7 +1,8 @@
 from pathlib import Path
+import os
 import re, json
 
-root = Path('.')
+root = Path(os.environ.get('PROJECT_ROOT', '.'))
 
 for p in (root/'lib').rglob('*.dart'):
     s = p.read_text()
