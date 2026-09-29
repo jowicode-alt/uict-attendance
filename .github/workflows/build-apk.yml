@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-android:
+    name: Build Android Release
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -82,11 +83,6 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter build appbundle --release --build-name=1.0.1 --build-number=2
 
-      - name: Build web
-        working-directory: ${{ env.PROJECT_ROOT }}
-        timeout-minutes: 15
-        run: flutter build web --release
-
       - name: Verify APK signature and 16 KB alignment
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
@@ -103,19 +99,15 @@ jobs:
           "$APK_SIGNER" verify --verbose "$APK"
           "$ZIPALIGN" -c -P 16 -v 4 "$APK"
 
-      - name: Collect release artifacts
+      - name: Collect Android release artifacts
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release/web
+          mkdir -p release
           cp build/app/outputs/apk/release/*.apk release/UICT_ATTENDANCE_v1.0.1_build2.apk
           cp build/app/outputs/bundle/release/*.aab release/UICT_ATTENDANCE_v1.0.1_build2.aab
-          cp -R build/web/. release/web/
-          cd release
-          zip -qr UICT_ATTENDANCE_WEB_v1.0.1_build2.zip web
-          rm -rf web
-          ls -lh *
+          ls -lh release/*
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -130,6 +122,60 @@ jobs:
           name: UICT-ATTENDANCE-AAB-v1.0.1-build2
           path: ${{ env.PROJECT_ROOT }}/release/UICT_ATTENDANCE_v1.0.1_build2.aab
           retention-days: 30
+
+  build-web:
+    name: Build Web Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Flutter source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
+          ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Apply requested UICT updates
+        shell: bash
+        run: python3 scripts/apply_uict_updates.py
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.3'
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter pub get
+
+      - name: Analyze web source
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter analyze
+
+      - name: Build web
+        working-directory: ${{ env.PROJECT_ROOT }}
+        timeout-minutes: 30
+        run: flutter build web --release
+
+      - name: Package web release
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/web
+          cp -R build/web/. release/web/
+          cd release
+          zip -qr UICT_ATTENDANCE_WEB_v1.0.1_build2.zip web
+          rm -rf web
+          ls -lh UICT_ATTENDANCE_WEB_v1.0.1_build2.zip
 
       - name: Upload Web
         uses: actions/upload-artifact@v4
