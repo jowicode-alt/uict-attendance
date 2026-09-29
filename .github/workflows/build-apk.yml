@@ -72,7 +72,7 @@ jobs:
           storePassword=$ANDROID_STORE_PASSWORD
           keyPassword=$ANDROID_KEY_PASSWORD
           keyAlias=$ANDROID_KEY_ALIAS
-          storeFile=keystore/uict-attendance-upload.jks
+          storeFile=../keystore/uict-attendance-upload.jks
           EOF
           test -s android/keystore/uict-attendance-upload.jks
           test -s android/key.properties
