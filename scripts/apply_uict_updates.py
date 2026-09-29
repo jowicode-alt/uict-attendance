@@ -36,6 +36,7 @@ s=re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\n\n    final position
 s=s.replace("      'wifiSsid': wifiName,\n",'')
 s=s.replace('administratorsStream()', 'lecturersStream()')
 s=s.replace("        ?.replaceAll('\"', '')\n        .trim();\n", '')
+s=s.replace("    final expiry = proofData?['expiresAt'] as Timestamp?;\n", '')
 
 # Remove the legacy Wi-Fi validation block without touching unrelated service methods.
 lines = s.splitlines()
