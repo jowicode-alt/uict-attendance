@@ -37,7 +37,7 @@ s=s.replace("      'wifiSsid': wifiName,\n",'')
 s=s.replace('administratorsStream()', 'lecturersStream()')
 # Deterministically remove any surviving legacy Wi-Fi references from the service.
 legacy = ('_networkInfo', 'allowedWifiSsids', 'network_info_plus')
-s = '\\n'.join(line for line in s.splitlines() if not any(token in line for token in legacy)) + '\\n'
+s = '\n'.join(line for line in s.splitlines() if not any(token in line for token in legacy)) + '\n'
 p.write_text(s)
 
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
