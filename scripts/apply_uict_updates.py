@@ -35,6 +35,7 @@ s=s.replace('Configure classroom Wi-Fi and GPS settings before opening attendanc
 s=re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\n\n    final position = await currentPosition\(\);\n', '    final position = await currentPosition();\n', s, count=1, flags=re.S)
 s=s.replace("      'wifiSsid': wifiName,\n",'')
 s=s.replace('administratorsStream()', 'lecturersStream()')
+s=s.replace("        ?.replaceAll('\"', '')\n        .trim();\n", '')
 
 # Remove the legacy Wi-Fi validation block without touching unrelated service methods.
 lines = s.splitlines()
