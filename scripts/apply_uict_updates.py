@@ -34,8 +34,9 @@ s=s.replace('Configure classroom Wi-Fi and GPS settings before opening attendanc
 s=re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\n\n    final position = await currentPosition\(\);\n', '    final position = await currentPosition();\n', s, count=1, flags=re.S)
 s=s.replace("      'wifiSsid': wifiName,\n",'')
 # Remove only targeted legacy Wi-Fi expressions without deleting surrounding Dart blocks.
-s=re.sub(r'^\s*(?:final\s+\w+\s*=\s*)?_networkInfo\.[^;]+;\s*
-s=s.replace('administratorsStream()', 'lecturersStream()')
+s=re.sub(r'^\\s*(?:final\\s+\\w+\\s*=\\s*)?_networkInfo\\.[^;]+;\\s*$', '', s, flags=re.M)
+s=re.sub(r'^\\s*allowedWifiSsids\\s*:\\s*[^,\\n]+,\\s*$', '', s, flags=re.M)
+s=re.sub(r'^\\s*final\\s+\\w+\\s*=\\s*.*allowedWifiSsids.*;\\s*$', '', s, flags=re.M)
 p.write_text(s)
 
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
