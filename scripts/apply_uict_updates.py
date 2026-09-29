@@ -325,8 +325,6 @@ class DefaultFirebaseOptions {
 }
 """)
 fp=root/'firebase.json'; cfg=json.loads(fp.read_text()); cfg['hosting']={"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"]}; fp.write_text(json.dumps(cfg,indent=2)+"\n")
-, '', s, flags=re.M)
-s=re.sub(r'^\s*final\s+\w+\s*=\s*.*allowedWifiSsids.*;\s*p.write_text(s)
 s=s.replace('administratorsStream()', 'lecturersStream()')
 p.write_text(s)
 
