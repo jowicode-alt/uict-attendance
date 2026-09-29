@@ -1,35 +1,291 @@
-name: Build UICT Attendance APK
+name: Build UICT Attendance Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract Flutter source archive
+      - name: Extract Flutter source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p source
           unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
           ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
-          if [ -z "$ROOT" ]; then
-            echo "::error::No Flutter pubspec.yaml found in the source archive."
-            exit 1
-          fi
+          test -n "$ROOT"
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Flutter project: $ROOT"
+
+      - name: Apply only requested UICT updates
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          def edit(path, replacements):
+              p = Path(path)
+              s = p.read_text()
+              for old, new in replacements:
+                  if old not in s:
+                      raise SystemExit(f"Expected source text not found in {path}: {old[:100]!r}")
+                  s = s.replace(old, new)
+              p.write_text(s)
+
+          # User-facing branding and terminology only.
+          for path in [
+              "lib/services/app_constants.dart","lib/app.dart","lib/services/auth_service.dart",
+              "lib/services/attendance_service.dart","lib/screens/mark_attendance_page.dart",
+              "lib/screens/admin_management_page.dart","lib/screens/admin_dashboard.dart",
+              "lib/screens/student_dashboard.dart","lib/screens/admin_settings_page.dart",
+              "lib/screens/auth_pages.dart",
+          ]:
+              p=Path(path); s=p.read_text()
+              for a,b in [("WIZZARD NATION","DIGITAL DYNAMOS"),("Wizzard Nation","Digital Dynamos"),
+                          ("wizzard nation","digital dynamos"),("Administrator","Lecturer"),
+                          ("administrator","lecturer"),("ADMINISTRATOR","LECTURER")]:
+                  s=s.replace(a,b)
+              p.write_text(s)
+
+          edit("lib/models/attendance_models.dart", [
+              ("    required this.allowedWifiSsids,\n",""),
+              ("  final List<String> allowedWifiSsids;\n",""),
+              ("""      allowedWifiSsids: List<String>.from(
+        data['allowedWifiSsids'] as List<dynamic>? ?? const <dynamic>[],
+      ),
+""",""),
+              ("""  bool get isConfigured =>
+      allowedWifiSsids.isNotEmpty && campusLocation != null && radiusMeters > 0;""",
+               """  bool get isConfigured => campusLocation != null && radiusMeters > 0;"""),
+          ])
+
+          edit("lib/services/attendance_service.dart", [
+              ("import 'package:network_info_plus/network_info_plus.dart';\n",""),
+              ("  final NetworkInfo _networkInfo = NetworkInfo();\n",""),
+              ("    required List<String> wifiSsids,\n",""),
+              ("""    final cleaned = wifiSsids
+        .map((value) => value.trim().replaceAll('"', ''))
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cleaned.isEmpty) {
+      throw const AttendanceException('Add at least one classroom Wi-Fi name.');
+    }
+    await _db.collection('settings').doc('attendance').set({
+      'allowedWifiSsids': cleaned,
+""","""    await _db.collection('settings').doc('attendance').set({
+"""),
+              ("Configure classroom Wi-Fi and GPS settings before opening attendance.",
+               "Configure the attendance location settings before opening attendance."),
+              ("""    // Android and iOS expose the Wi-Fi name only after location permission is
+    // granted, so resolve permission and position before reading the SSID.
+    final position = await currentPosition();
+    final wifiName = (await _networkInfo.getWifiName())
+        ?.replaceAll('"', '')
+        .trim();
+    if (wifiName == null || wifiName.isEmpty) {
+      throw const AttendanceException(
+        'Connect to the approved classroom Wi-Fi and allow location permission.',
+      );
+    }
+    if (!settings.allowedWifiSsids.contains(wifiName)) {
+      throw AttendanceException(
+        'You are connected to “$wifiName”, not an approved classroom Wi-Fi.',
+      );
+    }
+
+""","""    final position = await currentPosition();
+
+"""),
+              ("      'wifiSsid': wifiName,\n",""),
+          ])
+
+          edit("lib/screens/admin_settings_page.dart", [
+              ("  final _wifi = TextEditingController();\n",""),
+              ("    _wifi.text = settings.allowedWifiSsids.join(', ');\n",""),
+              ("    _wifi.dispose();\n",""),
+              ("    if (_wifi.text.trim().isEmpty || latitude == null || longitude == null) {",
+               "    if (latitude == null || longitude == null) {"),
+              ("Enter Wi-Fi names and capture or enter valid campus coordinates.",
+               "Capture or enter valid campus coordinates."),
+              ("        wifiSsids: _wifi.text.split(','),\n",""),
+              ("Use This Phone’s Current Location","Use This Device’s Current Location"),
+          ])
+          p=Path("lib/screens/admin_settings_page.dart"); s=p.read_text()
+          a=s.index("                Card(\n                  color: Theme.of(context).colorScheme.primaryContainer,")
+          b=s.index("                TextField(\n                  controller: _campusName,",a)
+          s=s[:a]+"""                Card(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  child: const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.security_outlined),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Students must be inside the approved GPS attendance area below and use the live session QR or code.',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+"""+s[b:]
+          w=s.find("                TextField(\n                  controller: _wifi,")
+          if w>=0:
+              e=s.index("                const SizedBox(height: 14),",w)
+              e=s.index("\n",e)+1
+              s=s[:w]+s[e:]
+          p.write_text(s)
+
+          p=Path("lib/screens/student_dashboard.dart"); s=p.read_text()
+          s=s.replace("""                    const RequirementRow(
+                      icon: Icons.wifi,
+                      text: 'Connect to the approved classroom Wi-Fi',
+                    ),
+""","")
+          marker="""            const SizedBox(height: 22),
+            FilledButton.icon(
+"""
+          if "_sessionSummaries(" not in s:
+              block="""            if (records.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              Text(
+                'Attendance by Session',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              ..._sessionSummaries(records).entries.map(
+                (entry) {
+                  final present = entry.value.where((r) => r.isPresent).length;
+                  final total = entry.value.length;
+                  final rate = total == 0 ? 0.0 : present * 100 / total;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.event_available_outlined),
+                        title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w700)),
+                        subtitle: Text('$present of $total sessions attended'),
+                        trailing: Text('${rate.toStringAsFixed(0)}%', style: const TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+            const SizedBox(height: 22),
+            FilledButton.icon(
+"""
+              if marker not in s: raise SystemExit("Student insertion marker missing")
+              s=s.replace(marker,block,1)
+              s=s.replace("class SummaryCard extends StatelessWidget {","""Map<String, List<AttendanceRecord>> _sessionSummaries(List<AttendanceRecord> records) {
+  final grouped = <String, List<AttendanceRecord>>{};
+  for (final record in records) {
+    grouped.putIfAbsent(record.sessionTitle, () => []).add(record);
+  }
+  return grouped;
+}
+
+class SummaryCard extends StatelessWidget {""")
+          p.write_text(s)
+
+          edit("pubspec.yaml",[("version: 1.0.0+1","version: 1.0.1+2"),("  network_info_plus: ^8.2.1\n","")])
+          edit("firestore.rules",[
+              ("        && request.resource.data.wifiSsid in settings.allowedWifiSsids\n",""),
+              ("""          'studentNumber', 'status', 'proofType', 'proofHash',
+          'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'""",
+               """          'studentNumber', 'status', 'proofType', 'proofHash',
+          'deviceId', 'location', 'accuracyMeters', 'checkedAt'"""),
+          ])
+
+          p=Path("android/app/src/main/AndroidManifest.xml"); s=p.read_text()
+          s=s.replace('    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\n','')
+          s=s.replace('    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n','')
+          p.write_text(s)
+
+          p=Path("lib/main.dart"); s=p.read_text()
+          if "firebase_options.dart" not in s:
+              s=s.replace("import 'app.dart';","import 'app.dart';\nimport 'firebase_options.dart';")
+          s=s.replace("await Firebase.initializeApp();","await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);")
+          p.write_text(s)
+
+          Path("lib/firebase_options.dart").write_text("""import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
+
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) return web;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android: return android;
+      case TargetPlatform.iOS: return ios;
+      default: return android;
+    }
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyDOXht78tQrPF1m5gpmjYV-nm0e-OfFAdY',
+    appId: '1:1046712358957:android:d0d86dabadbfc952e040a4',
+    messagingSenderId: '1046712358957',
+    projectId: 'attendence-uict-bbit',
+    storageBucket: 'attendence-uict-bbit.firebasestorage.app',
+    authDomain: 'attendence-uict-bbit.firebaseapp.com',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyDOXht78tQrPF1m5gpmjYV-nm0e-OfFAdY',
+    appId: '1:1046712358957:android:d0d86dabadbfc952e040a4',
+    messagingSenderId: '1046712358957',
+    projectId: 'attendence-uict-bbit',
+    storageBucket: 'attendence-uict-bbit.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyDOXht78tQrPF1m5gpmjYV-nm0e-OfFAdY',
+    appId: '1:1046712358957:android:d0d86dabadbfc952e040a4',
+    messagingSenderId: '1046712358957',
+    projectId: 'attendence-uict-bbit',
+    storageBucket: 'attendence-uict-bbit.firebasestorage.app',
+  );
+}
+""")
+
+          Path("web").mkdir(exist_ok=True)
+          Path("web/index.html").write_text("""<!DOCTYPE html>
+<html><head>
+<base href="$FLUTTER_BASE_HREF">
+<meta charset="UTF-8"><meta content="IE=Edge" http-equiv="X-UA-Compatible">
+<meta name="description" content="UICT ATTENDANCE">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0B1F3A"><title>UICT ATTENDANCE</title>
+</head><body><script src="flutter_bootstrap.js" async></script></body></html>
+""")
+          Path("web/manifest.json").write_text("""{
+  "name":"UICT ATTENDANCE","short_name":"UICT ATTENDANCE","start_url":".",
+  "display":"standalone","background_color":"#F4F6FA",
+  "theme_color":"#0B1F3A","description":"UICT ATTENDANCE"
+}
+""")
+          fp=Path("firebase.json"); cfg=json.loads(fp.read_text())
+          cfg["hosting"]={"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"]}
+          fp.write_text(json.dumps(cfg,indent=2)+"\n")
+          PY
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -74,47 +330,61 @@ jobs:
           keyAlias=$ANDROID_KEY_ALIAS
           storeFile=../keystore/uict-attendance-upload.jks
           EOF
-          test -s android/keystore/uict-attendance-upload.jks
-          test -s android/key.properties
-          echo "Release signing material restored for this ephemeral runner."
 
       - name: Build release APK
         working-directory: ${{ env.PROJECT_ROOT }}
-        run: flutter build apk --release
+        run: flutter build apk --release --build-name=1.0.1 --build-number=2
 
-      - name: Verify APK identity and integrity
+      - name: Build release AAB
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter build appbundle --release --build-name=1.0.1 --build-number=2
+
+      - name: Build web
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter build web --release
+
+      - name: Verify APK signature
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find build/app/outputs/apk -type f -name '*.apk' | head -n 1)"
+          APK="$(find build/app/outputs/apk/release -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
-          echo "APK: $APK"
           ls -lh "$APK"
           sha256sum "$APK"
-          if command -v apksigner >/dev/null 2>&1; then
-            apksigner verify --verbose "$APK"
-          else
-            echo "apksigner not on PATH; skipping direct signature verification."
-          fi
+          if command -v apksigner >/dev/null 2>&1; then apksigner verify --verbose "$APK"; fi
 
-      - name: Collect APK
+      - name: Collect artifacts
+        working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find "$PROJECT_ROOT/build/app/outputs/apk" -type f -name '*.apk' | head -n 1)"
-          if [ -z "$APK" ]; then
-            echo "::error::APK was not produced."
-            exit 1
-          fi
-          mkdir -p release
-          cp "$APK" release/UICT_ATTENDANCE.apk
-          ls -lh release/UICT_ATTENDANCE.apk
+          mkdir -p release/web
+          cp build/app/outputs/apk/release/*.apk release/UICT_ATTENDANCE_v1.0.1_build2.apk
+          cp build/app/outputs/bundle/release/*.aab release/UICT_ATTENDANCE_v1.0.1_build2.aab
+          cp -R build/web/. release/web/
+          cd release
+          zip -qr UICT_ATTENDANCE_WEB_v1.0.1_build2.zip web
+          rm -rf web
+          ls -lh *
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: UICT-ATTENDANCE-APK
-          path: release/UICT_ATTENDANCE.apk
-          if-no-files-found: error
-          retention-days: 14
+          name: UICT-ATTENDANCE-APK-v1.0.1-build2
+          path: ${{ env.PROJECT_ROOT }}/release/UICT_ATTENDANCE_v1.0.1_build2.apk
+          retention-days: 30
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: UICT-ATTENDANCE-AAB-v1.0.1-build2
+          path: ${{ env.PROJECT_ROOT }}/release/UICT_ATTENDANCE_v1.0.1_build2.aab
+          retention-days: 30
+
+      - name: Upload Web
+        uses: actions/upload-artifact@v4
+        with:
+          name: UICT-ATTENDANCE-WEB-v1.0.1-build2
+          path: ${{ env.PROJECT_ROOT }}/release/UICT_ATTENDANCE_WEB_v1.0.1_build2.zip
+          retention-days: 30
