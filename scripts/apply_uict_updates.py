@@ -180,10 +180,9 @@ class DefaultFirebaseOptions {
 }
 """)
 fp=root/'firebase.json'; cfg=json.loads(fp.read_text()); cfg['hosting']={"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"]}; fp.write_text(json.dumps(cfg,indent=2)+"\n")
-, '', s, flags=re.M)
-s=re.sub(r'^\s*allowedWifiSsids\s*:\s*[^,\n]+,\s*p.write_text(s)
 s=s.replace('administratorsStream()', 'lecturersStream()')
 p.write_text(s)
+
 
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
 s=s.replace('  final _wifi = TextEditingController();\n','')
