@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,6 +84,7 @@ jobs:
 
       - name: Build web
         working-directory: ${{ env.PROJECT_ROOT }}
+        timeout-minutes: 15
         run: flutter build web --release
 
       - name: Verify APK signature and 16 KB alignment
