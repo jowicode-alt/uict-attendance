@@ -104,8 +104,8 @@ block="""            if (records.isNotEmpty) ...[
                     child: ListTile(
                       leading: const Icon(Icons.event_available_outlined),
                       title: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      subtitle: Text(present.toString() + ' of ' + total.toString() + ' sessions attended'),
-                      trailing: Text(rate.toStringAsFixed(0) + '%', style: const TextStyle(fontWeight: FontWeight.w900)),
+                      subtitle: Text('$present of $total sessions attended'),
+                      trailing: Text('${rate.toStringAsFixed(0)}%', style: const TextStyle(fontWeight: FontWeight.w900)),
                     ),
                   ),
                 );
