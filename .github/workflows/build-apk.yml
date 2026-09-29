@@ -1,0 +1,75 @@
+name: Build UICT Attendance APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Flutter source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
+          ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
+          if [ -z "$ROOT" ]; then
+            echo "::error::No Flutter pubspec.yaml found in the source archive."
+            exit 1
+          fi
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+          echo "Flutter project: $ROOT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter analyze
+
+      - name: Build release APK
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter build apk --release
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find "$PROJECT_ROOT/build/app/outputs/apk" -type f -name '*.apk' | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "::error::APK was not produced."
+            exit 1
+          fi
+          mkdir -p release
+          cp "$APK" release/UICT_ATTENDANCE.apk
+          ls -lh release/UICT_ATTENDANCE.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: UICT-ATTENDANCE-APK
+          path: release/UICT_ATTENDANCE.apk
+          if-no-files-found: error
+          retention-days: 14
