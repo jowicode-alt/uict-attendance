@@ -1,6 +1,9 @@
 name: Build UICT Attendance APK
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
