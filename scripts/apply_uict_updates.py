@@ -58,7 +58,7 @@ while any('allowedWifiSsids' in line for line in lines):
     else:
         del lines[idx]
 lines = [line for line in lines if '_networkInfo' not in line and 'network_info_plus' not in line]
-s = '\\n'.join(lines) + '\\n'
+s = '\n'.join(lines) + '\n'
 p.write_text(s)
 
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
