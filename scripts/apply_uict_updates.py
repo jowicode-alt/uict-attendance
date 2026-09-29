@@ -35,9 +35,30 @@ s=s.replace('Configure classroom Wi-Fi and GPS settings before opening attendanc
 s=re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\n\n    final position = await currentPosition\(\);\n', '    final position = await currentPosition();\n', s, count=1, flags=re.S)
 s=s.replace("      'wifiSsid': wifiName,\n",'')
 s=s.replace('administratorsStream()', 'lecturersStream()')
-# Deterministically remove any surviving legacy Wi-Fi references from the service.
-legacy = ('_networkInfo', 'allowedWifiSsids', 'network_info_plus')
-s = '\n'.join(line for line in s.splitlines() if not any(token in line for token in legacy)) + '\n'
+
+# Remove only the legacy Wi-Fi validation statement/block; preserve all other service methods.
+lines = s.splitlines()
+while any('allowedWifiSsids' in line for line in lines):
+    idx = next(i for i,line in enumerate(lines) if 'allowedWifiSsids' in line)
+    start = idx
+    for j in range(max(0, idx - 12), idx + 1):
+        if lines[j].lstrip().startswith('if ') or lines[j].lstrip().startswith('if('):
+            start = j
+            break
+    brace_line = next((j for j in range(start, min(len(lines), idx + 1)) if '{' in lines[j]), None)
+    if brace_line is not None:
+        depth = 0
+        end = brace_line
+        for j in range(brace_line, len(lines)):
+            depth += lines[j].count('{') - lines[j].count('}')
+            if depth == 0:
+                end = j
+                break
+        del lines[start:end + 1]
+    else:
+        del lines[idx]
+lines = [line for line in lines if '_networkInfo' not in line and 'network_info_plus' not in line]
+s = '\\n'.join(lines) + '\\n'
 p.write_text(s)
 
 p=root/'lib/screens/admin_settings_page.dart'; s=p.read_text()
