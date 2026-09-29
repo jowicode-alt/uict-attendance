@@ -33,9 +33,8 @@ s=re.sub(r'    final cleaned = wifiSsids.*?\n    await _db\.collection\(\'settin
 s=s.replace('Configure classroom Wi-Fi and GPS settings before opening attendance.','Configure the attendance location settings before opening attendance.')
 s=re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\n\n    final position = await currentPosition\(\);\n', '    final position = await currentPosition();\n', s, count=1, flags=re.S)
 s=s.replace("      'wifiSsid': wifiName,\n",'')
-# Final cleanup of legacy Wi-Fi references in attendance_service.dart.
-s=re.sub(r"^.*_networkInfo.*(?:\\n|$)", '', s, flags=re.M)
-s=re.sub(r"^.*allowedWifiSsids.*(?:\\n|$)", '', s, flags=re.M)
+# Remove only complete legacy Wi-Fi reference lines; preserve surrounding Dart structure.
+s='\n'.join(line for line in s.splitlines() if not any(token in line for token in ('_networkInfo', 'allowedWifiSsids', 'wifiName', 'NetworkInfo')))+'\n'
 p.write_text(s)
 s=s.replace('administratorsStream()', 'lecturersStream()')
 p.write_text(s)
