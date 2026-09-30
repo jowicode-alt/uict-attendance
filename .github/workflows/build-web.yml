@@ -131,25 +131,31 @@ jobs:
           root = Path('.')
           term_re = re.compile(r'(?i)\b(administrators?|admins?)\b')
 
-          def change_ui_string_body(body):
-              # Preserve exact internal role identifiers/values such as
-              # 'administrator' and 'admin'. Change terminology when it is
-              # part of a user-facing phrase.
+          # Only rewrite strings that are actually used as UI text.
+          # Do not rewrite arbitrary quoted values because they may be
+          # authentication/role/database identifiers.
+          ui_markers = (
+              'Text(', 'RichText(', 'TextSpan(', 'AppBar(', 'SnackBar(',
+              'AlertDialog(', 'SimpleDialog(', 'showDialog(', 'showSnackBar(',
+              'labelText:', 'hintText:', 'helperText:', 'errorText:',
+              'tooltip:', 'title:', 'subtitle:', 'message:', 'content:',
+              'description:', 'semanticLabel:', 'buttonText:', 'emptyText:',
+          )
+
+          def change_body(body):
+              # Preserve exact role values, including capitalization.
               if body.strip().lower() in {'administrator', 'administrators', 'admin', 'admins'}:
                   return body
               return term_re.sub(
                   lambda m: (
-                      'Lecturers' if m.group(0).lower() in {'administrators', 'admins'}
-                      else 'Lecturer'
-                  ) if m.group(0)[0].isupper()
-                  else (
-                      'lecturers' if m.group(0).lower() in {'administrators', 'admins'}
-                      else 'lecturer'
+                      'Lecturers' if m.group(0).lower() in {'administrators', 'admins'} else 'Lecturer'
+                  ) if m.group(0)[0].isupper() else (
+                      'lecturers' if m.group(0).lower() in {'administrators', 'admins'} else 'lecturer'
                   ),
                   body
               )
 
-          def replace_in_quoted_strings(text):
+          def transform_ui_strings(text):
               out = []
               i = 0
               changed = False
@@ -161,7 +167,12 @@ jobs:
                       while j < n:
                           if text.startswith(quote, j) and (j == 0 or text[j-1] != '\\'):
                               body = text[i+3:j]
-                              new_body = change_ui_string_body(body)
+                              # Look back to the nearby code for a UI constructor/property.
+                              prefix = text[max(0, i-250):i]
+                              if any(marker in prefix for marker in ui_markers):
+                                  new_body = change_body(body)
+                              else:
+                                  new_body = body
                               changed |= new_body != body
                               out.append(quote + new_body + quote)
                               i = j + 3
@@ -190,7 +201,11 @@ jobs:
                           i = n
                           continue
                       body_text = ''.join(body)
-                      new_body = change_ui_string_body(body_text)
+                      prefix = text[max(0, i-250):i]
+                      if any(marker in prefix for marker in ui_markers):
+                          new_body = change_body(body_text)
+                      else:
+                          new_body = body_text
                       changed |= new_body != body_text
                       out.append(quote + new_body + quote)
                       i = j + 1
@@ -208,16 +223,14 @@ jobs:
                   text = p.read_text(encoding='utf-8')
               except (UnicodeDecodeError, OSError):
                   continue
-              new, changed = replace_in_quoted_strings(text)
+              new, changed = transform_ui_strings(text)
               if changed:
                   p.write_text(new, encoding='utf-8')
                   changed_files.append(str(p))
 
           print('Lecturer terminology files changed:', changed_files if changed_files else 'none')
 
-          # Verify the user-facing capitalized terminology is gone while exact
-          # internal role identifiers remain allowed.
-          remaining = []
+          # Verify the requested UI terminology is gone from UI strings only.
           for p in root.rglob('*'):
               if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
                   continue
@@ -225,19 +238,11 @@ jobs:
                   text = p.read_text(encoding='utf-8')
               except (UnicodeDecodeError, OSError):
                   continue
-              transformed, _ = replace_in_quoted_strings(text)
+              transformed, _ = transform_ui_strings(text)
               if transformed != text:
-                  # Re-running the transform must be a no-op.
                   raise SystemExit(f"Lecturer terminology transformation was not stable in {p}")
-              # Allow exact internal role literals such as 'administrator' and 'admin'.
-              # Reject only user-facing phrases that contain the old terminology.
-              for line in text.splitlines():
-                  for m in re.finditer(r"""(['"])(.*?)\1""", line):
-                      body = m.group(2).strip()
-                      if body.lower() in {'administrator', 'administrators', 'admin', 'admins'}:
-                          continue
-                      if re.search(r"\b(?:Administrator|Administrators|Admin|Admins)\b", body):
-                          raise SystemExit(f"User-facing Administrator/Admin wording remains in {p}: {line[:500]}")
+
+          print("Lecturer terminology update verified without rewriting non-UI string values.")
           PY
 
       - name: Remove Wi-Fi verification only
