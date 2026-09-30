@@ -63,8 +63,32 @@ jobs:
                   p.write_text(new, encoding='utf-8')
                   changed.append(str(p))
           print('Branding files changed:', changed if changed else 'none')
-          # Confirm the requested platform-neutral GPS wording is actually present in the extracted source.
-          found = []
+          PY
+
+      - name: Apply GPS wording update only
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('.')
+          old_re = re.compile(r"Use this[[:space:]]+phone['’]s[[:space:]]+current[[:space:]]+location")
+          changed = []
+          for p in root.rglob('*'):
+              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                  continue
+              try:
+                  text = p.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              new = old_re.sub("Use this device's current location", text)
+              if new != text:
+                  p.write_text(new, encoding='utf-8')
+                  changed.append(str(p))
+          print('GPS wording files changed:', changed if changed else 'none')
+          matches = []
           for p in root.rglob('*'):
               if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
                   continue
@@ -72,13 +96,26 @@ jobs:
                   t = p.read_text(encoding='utf-8')
               except (UnicodeDecodeError, OSError):
                   continue
-              if "Use this phone's current location" in t:
+              if "Use this phone's current location" in t or "Use this phone’s current location" in t:
                   raise SystemExit(f"Old GPS wording remains in {p}")
               if "Use this device's current location" in t:
-                  found.append(str(p))
-          if not found:
-              raise SystemExit("New GPS wording was not found in extracted source")
-          print('GPS wording verified:', found)
+                  matches.append(str(p))
+          if not matches:
+              # The source may use escaped/generated text; report all current-location occurrences for diagnosis.
+              for p in root.rglob('*'):
+                  if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                      continue
+                  try:
+                      t = p.read_text(encoding='utf-8')
+                  except (UnicodeDecodeError, OSError):
+                      continue
+                  if 'current location' in t.lower():
+                      print(f"CURRENT LOCATION TEXT in {p}:")
+                      for line in t.splitlines():
+                          if 'current location' in line.lower():
+                              print(line[:500])
+              raise SystemExit("Could not confirm the requested GPS wording in source")
+          print('GPS wording verified:', matches)
           PY
 
       - name: Remove Wi-Fi verification only
