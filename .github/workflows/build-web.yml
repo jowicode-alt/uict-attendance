@@ -73,7 +73,7 @@ jobs:
           )"
           test -n "$WEB_APP_ID"
 
-          firebase apps:sdkconfig "$WEB_APP_ID" --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-web-config.json"
+          firebase apps:sdkconfig WEB "$WEB_APP_ID" --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-web-config.json"
 
           python3 - "$RUNNER_TEMP/firebase-web-config.json" <<'PY'
           import json, sys
