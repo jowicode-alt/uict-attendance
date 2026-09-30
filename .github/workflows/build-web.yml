@@ -46,6 +46,7 @@ jobs:
               'WIZZARD NATION': 'DIGITAL DYNAMOS',
               'Wizzard Nation': 'DIGITAL DYNAMOS',
               'wizzard nation': 'digital dynamos',
+              "Use this phone's current location": "Use this device's current location",
           }
           changed = []
           for p in root.rglob('*'):
