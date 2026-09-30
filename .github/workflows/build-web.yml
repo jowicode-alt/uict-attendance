@@ -39,6 +39,51 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter create . --platforms=web
 
+      - name: Configure Firebase Web
+        working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          dart pub global activate flutterfire_cli
+          export PATH="$PATH:$HOME/.pub-cache/bin"
+          flutterfire configure --project=attendence-uict-bbit --platforms=web --yes
+
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path(".")
+          opts = root / "lib" / "firebase_options.dart"
+          if not opts.exists():
+              raise SystemExit("firebase_options.dart was not generated")
+          candidates = list(root.rglob("*.dart"))
+          target = None
+          for p in candidates:
+              if "Firebase.initializeApp()" in p.read_text(errors="ignore"):
+                  target = p
+                  break
+          if target is None:
+              raise SystemExit("No Firebase.initializeApp() call found")
+          text = target.read_text()
+          rel = Path(__file__) if False else None
+          import_path = Path("lib/firebase_options.dart")
+          rel = Path(__import__("os").path.relpath(import_path, target.parent))
+          imp = f"import '{rel.as_posix()}';"
+          if imp not in text:
+              lines = text.splitlines()
+              i = 0
+              while i < len(lines) and (lines[i].startswith("import ") or lines[i].strip()=="" or lines[i].startswith("///") or lines[i].startswith("//")):
+                  i += 1
+              lines.insert(i, imp)
+              text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+          text = text.replace("Firebase.initializeApp()", "Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)")
+          target.write_text(text)
+          print(f"Configured Firebase initialization in {target}")
+          PY
+
       - name: Get dependencies
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter pub get
