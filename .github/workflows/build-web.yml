@@ -119,6 +119,125 @@ jobs:
           print('GPS wording verified:', matches)
           PY
 
+      - name: Apply Lecturer terminology update only
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+
+          # Change only user-facing text inside quoted strings. Do not change
+          # internal role identifiers, database fields, variable names, or code.
+          term_re = re.compile(r'(?i)(administrators?|admins?|admin)(?![A-Za-z])')
+
+          def replace_in_quoted_strings(text):
+              out = []
+              i = 0
+              n = len(text)
+              changed = False
+              while i < n:
+                  ch = text[i]
+                  # Dart triple-quoted strings.
+                  if text.startswith("'''", i) or text.startswith('"""', i):
+                      quote = text[i:i+3]
+                      j = i + 3
+                      while j < n:
+                          if text.startswith(quote, j) and (j == 0 or text[j-1] != '\\'):
+                              body = text[i+3:j]
+                              new_body = term_re.sub(
+                                  lambda m: 'Lecturer' if m.group(0)[0].isupper() else 'lecturer',
+                                  body
+                              )
+                              if new_body != body:
+                                  changed = True
+                              out.append(quote + new_body + quote)
+                              i = j + 3
+                              break
+                          j += 1
+                      else:
+                          out.append(text[i:])
+                          i = n
+                      continue
+
+                  if ch in ("'", '"'):
+                      quote = ch
+                      j = i + 1
+                      body = []
+                      while j < n:
+                          if text[j] == '\\':
+                              if j + 1 < n:
+                                  body.extend([text[j], text[j+1]])
+                                  j += 2
+                                  continue
+                              body.append(text[j])
+                              j += 1
+                              continue
+                          if text[j] == quote:
+                              break
+                          body.append(text[j])
+                          j += 1
+                      if j >= n:
+                          out.append(text[i:])
+                          i = n
+                          continue
+                      body_text = ''.join(body)
+                      new_body = term_re.sub(
+                          lambda m: (
+                              'Lecturers' if m.group(0).lower() in ('administrators', 'admins')
+                              and m.group(0)[-1].lower() == 's'
+                              else 'Lecturer' if m.group(0)[0].isupper()
+                              else 'lecturer'
+                          ),
+                          body_text
+                      )
+                      if new_body != body_text:
+                          changed = True
+                      out.append(quote + new_body + quote)
+                      i = j + 1
+                      continue
+
+                  out.append(ch)
+                  i += 1
+              return ''.join(out), changed
+
+          changed_files = []
+          for p in root.rglob('*'):
+              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                  continue
+              try:
+                  text = p.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              new, changed = replace_in_quoted_strings(text)
+              if changed:
+                  p.write_text(new, encoding='utf-8')
+                  changed_files.append(str(p))
+
+          print('Lecturer terminology files changed:', changed_files if changed_files else 'none')
+
+          # Verify user-facing Administrator/Admin wording is gone from quoted strings.
+          remaining = []
+          for p in root.rglob('*'):
+              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                  continue
+              try:
+                  text = p.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              new, _ = replace_in_quoted_strings(text)
+              if re.search(r'(?i)(administrators?|admins?|admin)(?![A-Za-z])', new):
+                  # Only report if the term still exists in source text; internal
+                  # identifiers are intentionally allowed and are not changed.
+                  if any(x in new for x in ['"Administrator', "'Administrator", '"administrator', "'administrator", '"Admin ', "'Admin ", '"admin ', "'admin "]):
+                      remaining.append(str(p))
+          if remaining:
+              raise SystemExit("User-facing Administrator/Admin wording may remain in: " + ", ".join(remaining))
+          PY
+
       - name: Remove Wi-Fi verification only
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
