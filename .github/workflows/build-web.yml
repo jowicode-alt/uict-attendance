@@ -97,11 +97,13 @@ jobs:
               s = re.sub(r"(?m)^\s*(?:final|var)\s+wifiName\s*=.*$", "", s)
 
               lines = s.splitlines()
-              targets = [i for i, line in enumerate(lines) if "allowedWifiSsids" in line]
-              if targets:
+              for _ in range(20):
+                  targets = [i for i, line in enumerate(lines) if "allowedWifiSsids" in line]
+                  if not targets:
+                      break
                   target = targets[0]
                   block_start = None
-                  for i in range(target, max(-1, target - 80), -1):
+                  for i in range(target, max(-1, target - 100), -1):
                       if re.match(r"^\s*if\b.*\{\s*$", lines[i]):
                           block_start = i
                           break
@@ -109,7 +111,7 @@ jobs:
                       raise SystemExit("Found allowedWifiSsids but could not safely identify its if-block")
                   depth = 0
                   block_end = None
-                  for j in range(block_start, min(len(lines), target + 160)):
+                  for j in range(block_start, min(len(lines), target + 200)):
                       depth += lines[j].count("{") - lines[j].count("}")
                       if j > block_start and depth <= 0:
                           block_end = j
@@ -117,6 +119,8 @@ jobs:
                   if block_end is None:
                       raise SystemExit("Found Wi-Fi if-block but could not safely determine its end")
                   del lines[block_start:block_end + 1]
+              if any("allowedWifiSsids" in line for line in lines):
+                  raise SystemExit("More than 20 Wi-Fi attendance blocks remain; refusing unsafe edit")
               return "\n".join(lines) + "\n"
 
           edit("lib/services/attendance_service.dart", remove_service_wifi)
@@ -134,11 +138,13 @@ jobs:
                             "Students must be inside the approved GPS attendance area below and use the live session QR or code.")
 
               lines = s.splitlines()
-              hits = [i for i, line in enumerate(lines) if "_wifi" in line and "controller:" in line]
-              if hits:
+              for _ in range(10):
+                  hits = [i for i, line in enumerate(lines) if "_wifi" in line and "controller:" in line]
+                  if not hits:
+                      break
                   hit = hits[0]
                   start = None
-                  for i in range(hit, max(-1, hit - 40), -1):
+                  for i in range(hit, max(-1, hit - 50), -1):
                       if "TextField(" in lines[i]:
                           start = i
                           break
@@ -146,7 +152,7 @@ jobs:
                       raise SystemExit("Found Wi-Fi TextField controller but could not locate its TextField start")
                   depth = 0
                   end = None
-                  for j in range(start, min(len(lines), hit + 100)):
+                  for j in range(start, min(len(lines), hit + 120)):
                       depth += lines[j].count("(") - lines[j].count(")")
                       if j > start and depth <= 0:
                           end = j
