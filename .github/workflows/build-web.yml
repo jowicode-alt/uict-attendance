@@ -60,13 +60,114 @@ jobs:
           print('Branding files changed:', changed if changed else 'none')
           PY
 
-      - name: Inspect Wi-Fi verification source
+      - name: Remove Wi-Fi verification only
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== Wi-Fi-related Dart source ==="
-          grep -RniE -C 12 'getWifiName|allowedWifiSsids|wifiSsid|approved classroom Wi-Fi' --include='*.dart' . || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(name):
+              p = Path(name)
+              return p, p.read_text(encoding='utf-8')
+
+          # Attendance model: Wi-Fi is no longer part of the attendance configuration.
+          p, s = read('lib/models/attendance_models.dart')
+          s = s.replace('    required this.allowedWifiSsids,\\n', '')
+          s = s.replace('  final List<String> allowedWifiSsids;\\n', '')
+          s = re.sub(r'      allowedWifiSsids: List<String>.from\\(.*?\\n      \\),\\n', '', s, count=1, flags=re.S)
+          s = re.sub(r'  bool get isConfigured =>.*?;\\n',
+                     '  bool get isConfigured => campusLocation != null && radiusMeters > 0;\\n',
+                     s, count=1, flags=re.S)
+          p.write_text(s, encoding='utf-8')
+
+          # Attendance service: remove Wi-Fi discovery, persistence, and validation.
+          p, s = read('lib/services/attendance_service.dart')
+          s = s.replace("import 'package:network_info_plus/network_info_plus.dart';\\n", '')
+          s = s.replace('  final NetworkInfo _networkInfo = NetworkInfo();\\n', '')
+          s = s.replace('    required List<String> wifiSsids,\\n', '')
+          s = re.sub(r'    final cleaned = wifiSsids.*?\\n    await _db\\.collection\\(\'settings\'\\)\\.doc\\(\'attendance\'\\)\\.set\\(\\{\\n      \'allowedWifiSsids\': cleaned,\\n',
+                     "    await _db.collection('settings').doc('attendance').set({\\n",
+                     s, count=1, flags=re.S)
+          s = re.sub(r'    // Android and iOS expose the Wi-Fi name.*?\\n\\n    final position = await currentPosition\\(\\);\\n',
+                     '    final position = await currentPosition();\\n',
+                     s, count=1, flags=re.S)
+          s = s.replace("      'wifiSsid': wifiName,\\n", '')
+          lines = s.splitlines()
+          while True:
+              hit = next((i for i, line in enumerate(lines) if 'allowedWifiSsids' in line), None)
+              if hit is None:
+                  break
+              start = hit
+              for j in range(hit - 1, max(-1, hit - 20), -1):
+                  if lines[j].lstrip().startswith('if ') or lines[j].lstrip().startswith('if('):
+                      start = j
+                      break
+              depth = 0
+              end = hit
+              found = False
+              for j in range(start, len(lines)):
+                  depth += lines[j].count('{') - lines[j].count('}')
+                  if '{' in lines[j]:
+                      found = True
+                  if found and depth == 0:
+                      end = j
+                      break
+              del lines[start:end + 1]
+          s = '\\n'.join(lines) + '\\n'
+          s = '\\n'.join(line for line in s.splitlines() if '_networkInfo' not in line and 'network_info_plus' not in line and 'wifiName' not in line) + '\\n'
+          p.write_text(s, encoding='utf-8')
+
+          # Admin settings: remove Wi-Fi configuration from the settings screen.
+          p, s = read('lib/screens/admin_settings_page.dart')
+          s = s.replace('  final _wifi = TextEditingController();\\n', '')
+          s = s.replace("    _wifi.text = settings.allowedWifiSsids.join(', ');\\n", '')
+          s = s.replace('    _wifi.dispose();\\n', '')
+          s = s.replace("if (_wifi.text.trim().isEmpty || latitude == null || longitude == null)",
+                        "if (latitude == null || longitude == null)")
+          s = s.replace("'Enter Wi-Fi names and capture or enter valid campus coordinates.'",
+                        "'Capture or enter valid campus coordinates.'")
+          s = s.replace("        wifiSsids: _wifi.text.split(','),\\n", '')
+          s = re.sub(r'                TextField\\(\\n                  controller: _wifi,.*?                const SizedBox\\(height: 14\\),\\n',
+                     '', s, count=1, flags=re.S)
+          s = s.replace('Students must match both an approved Wi-Fi name and the GPS radius below. Wi-Fi names are case-sensitive.',
+                        'Students must be inside the approved GPS attendance area below and use the live session QR or code.')
+          p.write_text(s, encoding='utf-8')
+
+          # Student UI: remove the Wi-Fi attendance requirement from the displayed checklist.
+          p, s = read('lib/screens/student_dashboard.dart')
+          s = s.replace("""                    const RequirementRow(
+                      icon: Icons.wifi,
+                      text: 'Connect to the approved classroom Wi-Fi',
+                    ),
+""", '')
+          p.write_text(s, encoding='utf-8')
+
+          # Rules: Wi-Fi must no longer be required in attendance proof.
+          p, s = read('firestore.rules')
+          s = s.replace("        && request.resource.data.wifiSsid in settings.allowedWifiSsids\\n", '')
+          s = s.replace("'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'",
+                        "'deviceId', 'location', 'accuracyMeters', 'checkedAt'")
+          p.write_text(s, encoding='utf-8')
+
+          # Remove the unused Wi-Fi plugin from the Flutter dependency list if present.
+          p, s = read('pubspec.yaml')
+          s = re.sub(r'^\\s*network_info_plus:.*\\n', '', s, flags=re.M)
+          p.write_text(s, encoding='utf-8')
+
+          # Remove Wi-Fi-only Android permissions; GPS remains untouched.
+          p, s = read('android/app/src/main/AndroidManifest.xml')
+          s = s.replace('    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />\\n', '')
+          s = s.replace('    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\\n', '')
+          p.write_text(s, encoding='utf-8')
+
+          print('Wi-Fi attendance verification removed; GPS, QR/code, sessions, and other checks were not changed.')
+          PY
+
+          echo "=== Remaining Wi-Fi attendance references ==="
+          grep -RniE 'allowedWifiSsids|wifiSsid|getWifiName|network_info_plus|approved classroom Wi-Fi' --include='*.dart' --include='*.yaml' --include='*.rules' . || true
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
