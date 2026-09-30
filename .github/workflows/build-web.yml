@@ -84,6 +84,7 @@ jobs:
               except (UnicodeDecodeError, OSError):
                   continue
               new = old_re.sub("Use this device's current location", text)
+              new = new.replace("Text('Use this device's current location')", 'Text("Use this device\'s current location")')
               if new != text:
                   p.write_text(new, encoding='utf-8')
                   changed.append(str(p))
