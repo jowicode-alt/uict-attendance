@@ -60,6 +60,14 @@ jobs:
           print('Branding files changed:', changed if changed else 'none')
           PY
 
+      - name: Inspect Wi-Fi verification source
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Wi-Fi-related Dart source ==="
+          grep -RniE -C 12 'getWifiName|allowedWifiSsids|wifiSsid|approved classroom Wi-Fi' --include='*.dart' . || true
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
