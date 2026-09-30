@@ -242,7 +242,7 @@ jobs:
           skip_chain = False
           for line in lines:
               stripped = line.strip()
-              if stripped.startswith("?.replaceAll('"', '')"):
+              if "?.replaceAll" in stripped:
                   continue
               out.append(line)
           svc = "\n".join(out) + "\n"
