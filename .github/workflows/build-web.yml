@@ -54,12 +54,17 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
 
           firebase apps:list --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-apps.json"
-          cp "$RUNNER_TEMP/firebase-apps.json" /tmp/firebase-apps.json
 
-          WEB_APP_ID="$(python3 - <<'PY'
-          import json
-          d=json.load(open("/tmp/firebase-apps.json"))
-          apps=d.get("result", d).get("apps", [])
+          WEB_APP_ID="$(python3 - "$RUNNER_TEMP/firebase-apps.json" <<'PY'
+          import json, sys
+          d=json.load(open(sys.argv[1]))
+          result=d.get("result", d)
+          if isinstance(result, list):
+              apps=result
+          elif isinstance(result, dict):
+              apps=result.get("apps", [])
+          else:
+              apps=[]
           web=[a for a in apps if str(a.get("platform","")).upper() in ("WEB","WEB_APP")]
           if not web:
               raise SystemExit("No Firebase Web app is registered in attendence-uict-bbit")
@@ -75,15 +80,16 @@ jobs:
           from pathlib import Path
           cfg=json.load(open(sys.argv[1]))
           cfg=cfg.get("result", cfg)
-          if "sdkConfig" in cfg:
+          if isinstance(cfg, dict) and "sdkConfig" in cfg:
               cfg=cfg["sdkConfig"]
+          if isinstance(cfg, list):
+              cfg=cfg[0] if cfg else {}
           web=cfg.get("configuration") or cfg.get("web") or cfg
           required=["apiKey","appId","messagingSenderId","projectId"]
           missing=[k for k in required if not web.get(k)]
           if missing:
               raise SystemExit("Missing Firebase Web config fields: "+", ".join(missing))
-          def dart(v):
-              return json.dumps(v)
+          def dart(v): return json.dumps(v)
           lines=[
               "import 'package:firebase_core/firebase_core.dart';",
               "",
@@ -114,7 +120,7 @@ jobs:
               raise SystemExit("firebase_options.dart was not generated")
           target=None
           for p in root.rglob("*.dart"):
-              if "firebase_options.dart" in str(p):
+              if p.name == "firebase_options.dart":
                   continue
               t=p.read_text(errors="ignore")
               if "Firebase.initializeApp()" in t:
