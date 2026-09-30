@@ -453,6 +453,70 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter create . --platforms=web
 
+      - name: Add immediate Web loading screen only
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("web/index.html")
+          if not p.exists():
+              raise SystemExit("web/index.html not found")
+          s = p.read_text(encoding="utf-8")
+          loader = '''
+          <style id="uict-startup-loader-style">
+            #uict-startup-loader {
+              position: fixed;
+              inset: 0;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              background: #ffffff;
+              color: #0B1F3A;
+              font-family: Arial, sans-serif;
+              z-index: 2147483647;
+            }
+            #uict-startup-loader .title {
+              font-size: 28px;
+              font-weight: 800;
+              letter-spacing: .2px;
+            }
+            #uict-startup-loader .loading {
+              margin-top: 10px;
+              font-size: 16px;
+            }
+          </style>
+          <div id="uict-startup-loader" aria-label="UICT ATTENDANCE Loading">
+            <div class="title">UICT ATTENDANCE</div>
+            <div class="loading">Loading…</div>
+          </div>
+          '''
+          if "id=\"uict-startup-loader\"" not in s:
+              s = s.replace("</head>", loader + "\n</head>", 1)
+          remove_script = '''
+          <script>
+            (function () {
+              function removeLoader() {
+                var el = document.getElementById('uict-startup-loader');
+                if (el) el.remove();
+              }
+              window.addEventListener('flutter-first-frame', removeLoader, { once: true });
+              window.addEventListener('load', function () {
+                setTimeout(removeLoader, 15000);
+              }, { once: true });
+            })();
+          </script>
+          '''
+          if "flutter-first-frame" not in s:
+              s = s.replace("</body>", remove_script + "\n</body>", 1)
+          p.write_text(s, encoding="utf-8")
+          if "UICT ATTENDANCE" not in s or "Loading…" not in s:
+              raise SystemExit("Startup loading screen verification failed")
+          print("Immediate UICT ATTENDANCE Loading… screen added to Web index.")
+          PY
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
