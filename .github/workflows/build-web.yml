@@ -21,6 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf source
           mkdir -p source
           unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
           ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
@@ -33,6 +34,10 @@ jobs:
           flutter-version: '3.47.4'
           channel: stable
           cache: true
+
+      - name: Configure Web platform
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: flutter create . --platforms=web
 
       - name: Get dependencies
         working-directory: ${{ env.PROJECT_ROOT }}
