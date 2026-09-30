@@ -93,6 +93,24 @@ jobs:
               s = s.replace("  final NetworkInfo _networkInfo = NetworkInfo();\n", "")
               s = s.replace("    required List<String> wifiSsids,\n", "")
               s = re.sub(r"(?m)^\s*wifiSsids:\s*[^,\n]+,\s*$", "", s)
+              # Remove the legacy saveSettings() Wi-Fi normalization/write block.
+              lines0 = s.splitlines()
+              cleaned0 = []
+              skip = False
+              for line in lines0:
+                  if line.strip().startswith("final cleaned = wifiSsids"):
+                      skip = True
+                      continue
+                  if skip:
+                      if line.strip() == ".toList();":
+                          skip = False
+                      continue
+                  if "'allowedWifiSsids': cleaned" in line:
+                      continue
+                  cleaned0.append(line)
+              if skip:
+                  raise SystemExit("Could not safely remove legacy Wi-Fi settings block")
+              s = "\n".join(cleaned0) + "\n"
               s = re.sub(r"(?m)^\s*['\"]wifiSsid['\"]:\s*[^,\n]+,\s*$", "", s)
               s = re.sub(r"(?m)^\s*(?:final|var)\s+wifiName\s*=.*$", "", s)
 
