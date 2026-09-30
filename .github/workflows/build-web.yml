@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: uict-web-build
+  cancel-in-progress: true
+
 jobs:
   build-web:
     runs-on: ubuntu-latest
@@ -69,111 +73,110 @@ jobs:
           from pathlib import Path
           import re
 
-          def edit(path, transform):
-              p=Path(path)
+          def edit(path, fn):
+              p = Path(path)
               if not p.exists():
                   raise SystemExit(f"Required source file missing: {path}")
-              old=p.read_text(encoding="utf-8")
-              new=transform(old)
-              p.write_text(new,encoding="utf-8")
-              print(f"updated {path}: {old.count(chr(10))} -> {new.count(chr(10))} lines")
+              old = p.read_text(encoding="utf-8")
+              new = fn(old)
+              p.write_text(new, encoding="utf-8")
+              print(f"updated {path}")
 
-          # Keep the data model backward-compatible. Wi-Fi settings may still exist in
-          # stored documents, but they are no longer used as attendance proof.
-          def model(s):
-              return re.sub(
-                  r"(?m)^\s*bool get isConfigured =>.*$",
-                  "  bool get isConfigured => campusLocation != null && radiusMeters > 0;",
-                  s,
-                  count=1,
-              )
-          edit("lib/models/attendance_models.dart",model)
+          # Keep stored Wi-Fi configuration fields for backward compatibility.
+          edit("lib/models/attendance_models.dart", lambda s: re.sub(
+              r"(?m)^\s*bool get isConfigured =>.*$",
+              "  bool get isConfigured => campusLocation != null && radiusMeters > 0;",
+              s, count=1))
 
-          def service(s):
-              s=s.replace("import 'package:network_info_plus/network_info_plus.dart';\n","")
-              s=s.replace("  final NetworkInfo _networkInfo = NetworkInfo();\n","")
-              s=s.replace("    required List<String> wifiSsids,\n","")
-              # Remove Wi-Fi named arguments from every call while preserving all other arguments.
-              s=re.sub(r"(?m)^\s*wifiSsids:\s*[^,\n]+,\s*\n","",s)
-              # Remove stored wifiSsid map entries only.
-              s=re.sub(r"(?m)^\s*['\"]wifiSsid['\"]:\s*[^,\n]+,\s*\n","",s)
-              # Remove simple Wi-Fi discovery assignments.
-              s=re.sub(r"(?m)^\s*(?:final|var)\s+wifiName\s*=.*\n","",s)
-              # Remove an if-block only when that block itself contains the Wi-Fi allow-list check.
-              lines=s.splitlines()
-              out=[]
-              i=0
-              while i<len(lines):
-                  if "allowedWifiSsids" in lines[i]:
-                      # This is a safety net: delete the enclosing if block, not arbitrary
-                      # surrounding code. The source remains valid for all other checks.
-                      start=i
-                      while start>0 and not re.match(r"\s*if\s*\(",lines[start]):
-                          start-=1
-                      if start>=0 and re.match(r"\s*if\s*\(",lines[start]):
-                          depth=0
-                          opened=False
-                          j=start
-                          while j<len(lines):
-                              depth += lines[j].count("{")-lines[j].count("}")
-                              opened |= "{" in lines[j]
-                              if opened and depth<=0:
-                                  break
-                              j+=1
-                          if j<len(lines):
-                              i=j+1
-                              continue
-                  if "getWifiName" in lines[i] or "_networkInfo" in lines[i]:
-                      i+=1
-                      continue
-                  out.append(lines[i])
-                  i+=1
-              return "\n".join(out)+"\n"
-          edit("lib/services/attendance_service.dart",service)
+          def remove_service_wifi(s):
+              s = s.replace("import 'package:network_info_plus/network_info_plus.dart';\n", "")
+              s = s.replace("  final NetworkInfo _networkInfo = NetworkInfo();\n", "")
+              s = s.replace("    required List<String> wifiSsids,\n", "")
+              s = re.sub(r"(?m)^\s*wifiSsids:\s*[^,\n]+,\s*$", "", s)
+              s = re.sub(r"(?m)^\s*['\"]wifiSsid['\"]:\s*[^,\n]+,\s*$", "", s)
+              s = re.sub(r"(?m)^\s*(?:final|var)\s+wifiName\s*=.*$", "", s)
 
-          def admin(s):
-              s=s.replace("  final _wifi = TextEditingController();\n","")
-              s=s.replace("    _wifi.text = settings.allowedWifiSsids.join(', ');\n","")
-              s=s.replace("    _wifi.dispose();\n","")
-              s=s.replace("        wifiSsids: _wifi.text.split(','),\n","")
-              s=s.replace("if (_wifi.text.trim().isEmpty || latitude == null || longitude == null)",
-                          "if (latitude == null || longitude == null)")
-              s=s.replace("'Enter Wi-Fi names and capture or enter valid campus coordinates.'",
-                          "'Capture or enter valid campus coordinates.'")
-              s=s.replace("Students must match both an approved Wi-Fi name and the GPS radius below. Wi-Fi names are case-sensitive.",
-                          "Students must be inside the approved GPS attendance area below and use the live session QR or code.")
-              s=re.sub(r"\n\s*TextField\(\n\s*controller:\s*_wifi,.*?\n\s*const SizedBox\(height:\s*14\),","",s,count=1,flags=re.S)
-              return s
-          edit("lib/screens/admin_settings_page.dart",admin)
+              lines = s.splitlines()
+              targets = [i for i, line in enumerate(lines) if "allowedWifiSsids" in line]
+              if targets:
+                  target = targets[0]
+                  block_start = None
+                  for i in range(target, max(-1, target - 80), -1):
+                      if re.match(r"^\s*if\b.*\{\s*$", lines[i]):
+                          block_start = i
+                          break
+                  if block_start is None:
+                      raise SystemExit("Found allowedWifiSsids but could not safely identify its if-block")
+                  depth = 0
+                  block_end = None
+                  for j in range(block_start, min(len(lines), target + 160)):
+                      depth += lines[j].count("{") - lines[j].count("}")
+                      if j > block_start and depth <= 0:
+                          block_end = j
+                          break
+                  if block_end is None:
+                      raise SystemExit("Found Wi-Fi if-block but could not safely determine its end")
+                  del lines[block_start:block_end + 1]
+              return "\n".join(lines) + "\n"
 
-          def student(s):
-              return re.sub(
-                  r"\n\s*const RequirementRow\(\n\s*icon:\s*Icons\.wifi,\n\s*text:\s*'Connect to the approved classroom Wi-Fi',\n\s*\),",
-                  "",
-                  s,
-                  count=1,
-              )
-          edit("lib/screens/student_dashboard.dart",student)
+          edit("lib/services/attendance_service.dart", remove_service_wifi)
+
+          def remove_admin_wifi(s):
+              s = s.replace("  final _wifi = TextEditingController();\n", "")
+              s = s.replace("    _wifi.text = settings.allowedWifiSsids.join(', ');\n", "")
+              s = s.replace("    _wifi.dispose();\n", "")
+              s = s.replace("        wifiSsids: _wifi.text.split(','),\n", "")
+              s = s.replace("if (_wifi.text.trim().isEmpty || latitude == null || longitude == null)",
+                            "if (latitude == null || longitude == null)")
+              s = s.replace("'Enter Wi-Fi names and capture or enter valid campus coordinates.'",
+                            "'Capture or enter valid campus coordinates.'")
+              s = s.replace("Students must match both an approved Wi-Fi name and the GPS radius below. Wi-Fi names are case-sensitive.",
+                            "Students must be inside the approved GPS attendance area below and use the live session QR or code.")
+
+              lines = s.splitlines()
+              hits = [i for i, line in enumerate(lines) if "_wifi" in line and "controller:" in line]
+              if hits:
+                  hit = hits[0]
+                  start = None
+                  for i in range(hit, max(-1, hit - 40), -1):
+                      if "TextField(" in lines[i]:
+                          start = i
+                          break
+                  if start is None:
+                      raise SystemExit("Found Wi-Fi TextField controller but could not locate its TextField start")
+                  depth = 0
+                  end = None
+                  for j in range(start, min(len(lines), hit + 100)):
+                      depth += lines[j].count("(") - lines[j].count(")")
+                      if j > start and depth <= 0:
+                          end = j
+                          break
+                  if end is None:
+                      raise SystemExit("Found Wi-Fi TextField but could not safely determine its end")
+                  del lines[start:end + 1]
+              return "\n".join(lines) + "\n"
+
+          edit("lib/screens/admin_settings_page.dart", remove_admin_wifi)
+
+          edit("lib/screens/student_dashboard.dart", lambda s: re.sub(
+              r"\n\s*const RequirementRow\(\n\s*icon:\s*Icons\.wifi,\n\s*text:\s*'Connect to the approved classroom Wi-Fi',\n\s*\),",
+              "", s, count=1))
 
           def rules(s):
-              s=s.replace("        && request.resource.data.wifiSsid in settings.allowedWifiSsids\n","")
-              s=s.replace("'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'",
-                          "'deviceId', 'location', 'accuracyMeters', 'checkedAt'")
+              s = s.replace("        && request.resource.data.wifiSsid in settings.allowedWifiSsids\n", "")
+              s = s.replace("'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'",
+                            "'deviceId', 'location', 'accuracyMeters', 'checkedAt'")
               return s
-          edit("firestore.rules",rules)
+          edit("firestore.rules", rules)
 
-          print("Wi-Fi is removed from attendance verification; GPS, QR/code, sessions, device checks and all other checks remain.")
+          # Hard validation: Wi-Fi must not remain in the attendance decision path.
+          for path in ["lib/services/attendance_service.dart", "firestore.rules"]:
+              text = Path(path).read_text(encoding="utf-8")
+              if re.search(r"network_info_plus|getWifiName|_networkInfo|wifiSsid|allowedWifiSsids", text):
+                  raise SystemExit(f"Wi-Fi attendance reference remains in {path}")
+          print("Wi-Fi verification removed. GPS, QR/code, sessions, device checks and other checks are preserved.")
           PY
 
-          echo "=== Wi-Fi verification references after patch ==="
-          grep -RniE 'network_info_plus|getWifiName|_networkInfo|wifiSsid|allowedWifiSsids|approved classroom Wi-Fi'             --include='*.dart' --include='*.rules' lib firestore.rules 2>/dev/null || true
-
-          # The stored Wi-Fi configuration model is intentionally retained for compatibility.
-          # It must not be used by the attendance service or Firestore attendance proof.
-          if grep -RniE 'network_info_plus|getWifiName|_networkInfo|wifiSsid|allowedWifiSsids'               --include='*.dart' lib/services/attendance_service.dart firestore.rules; then
-            echo "ERROR: Wi-Fi is still referenced by attendance verification."
-            exit 1
-          fi
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
