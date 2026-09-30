@@ -108,6 +108,10 @@ jobs:
                           block_start = i
                           break
                   if block_start is None:
+                      print("=== UNMATCHED allowedWifiSsids CONTEXT ===")
+                      lo=max(0,target-12); hi=min(len(lines),target+13)
+                      for n in range(lo,hi):
+                          print(f"{n+1}: {lines[n]}")
                       raise SystemExit("Found allowedWifiSsids but could not safely identify its if-block")
                   depth = 0
                   block_end = None
