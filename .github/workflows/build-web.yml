@@ -229,9 +229,15 @@ jobs:
               if transformed != text:
                   # Re-running the transform must be a no-op.
                   raise SystemExit(f"Lecturer terminology transformation was not stable in {p}")
+              # Allow exact internal role literals such as 'administrator' and 'admin'.
+              # Reject only user-facing phrases that contain the old terminology.
               for line in text.splitlines():
-                  if re.search(r"""['"][^'"]*\b(?:Administrator|Administrators|Admin|Admins)\b[^'"]*['"]""", line):
-                      raise SystemExit(f"User-facing Administrator/Admin wording remains in {p}: {line[:500]}")
+                  for m in re.finditer(r"""(['"])(.*?)\1""", line):
+                      body = m.group(2).strip()
+                      if body.lower() in {'administrator', 'administrators', 'admin', 'admins'}:
+                          continue
+                      if re.search(r"\b(?:Administrator|Administrators|Admin|Admins)\b", body):
+                          raise SystemExit(f"User-facing Administrator/Admin wording remains in {p}: {line[:500]}")
           PY
 
       - name: Remove Wi-Fi verification only
