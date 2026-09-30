@@ -74,7 +74,7 @@ jobs:
           from pathlib import Path
           import re
           root = Path('.')
-          old_re = re.compile(r"Use this[[:space:]]+phone['’]s[[:space:]]+current[[:space:]]+location")
+          old_re = re.compile(r"Use this\s+phone['’]s\s+current\s+location")
           changed = []
           for p in root.rglob('*'):
               if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
