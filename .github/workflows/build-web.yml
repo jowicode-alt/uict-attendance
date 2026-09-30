@@ -83,10 +83,23 @@ jobs:
               print(f"updated {path}")
 
           # Keep stored Wi-Fi configuration fields for backward compatibility.
-          edit("lib/models/attendance_models.dart", lambda s: re.sub(
-              r"(?m)^\s*bool get isConfigured =>.*$",
-              "  bool get isConfigured => campusLocation != null && radiusMeters > 0;",
-              s, count=1))
+          def model(s):
+              lines = s.splitlines()
+              hit = next((i for i, line in enumerate(lines) if "bool get isConfigured =>" in line), None)
+              if hit is None:
+                  raise SystemExit("isConfigured getter not found")
+              end = None
+              for j in range(hit, min(len(lines), hit + 30)):
+                  if ";" in lines[j]:
+                      end = j
+                      break
+              if end is None:
+                  raise SystemExit("Could not safely determine end of isConfigured getter")
+              lines[hit:end + 1] = [
+                  "  bool get isConfigured => campusLocation != null && radiusMeters > 0;"
+              ]
+              return "\n".join(lines) + "\n"
+          edit("lib/models/attendance_models.dart", model)
 
           def remove_service_wifi(s):
               s = s.replace("import 'package:network_info_plus/network_info_plus.dart';\n", "")
@@ -126,10 +139,6 @@ jobs:
                           block_start = i
                           break
                   if block_start is None:
-                      print("=== UNMATCHED allowedWifiSsids CONTEXT ===")
-                      lo=max(0,target-12); hi=min(len(lines),target+13)
-                      for n in range(lo,hi):
-                          print(f"{n+1}: {lines[n]}")
                       raise SystemExit("Found allowedWifiSsids but could not safely identify its if-block")
                   depth = 0
                   block_end = None
