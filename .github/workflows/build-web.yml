@@ -206,6 +206,48 @@ jobs:
               return s
           edit("firestore.rules", rules)
 
+          # Remove any remaining standalone Wi-Fi validation blocks that depended on
+          # wifiName/cleaned variables. Each removal is bounded and only targets the
+          # exact legacy guard, never GPS/session/device logic.
+          def remove_guard(s, marker):
+              lines = s.splitlines()
+              while True:
+                  hit = next((i for i, line in enumerate(lines) if marker in line), None)
+                  if hit is None:
+                      return "\n".join(lines) + "\n"
+                  start = None
+                  for i in range(hit, max(-1, hit - 30), -1):
+                      if re.match(r"^\s*if\s*\(", lines[i]):
+                          start = i
+                          break
+                  if start is None:
+                      raise SystemExit(f"Could not safely locate guard for {marker}")
+                  depth = 0
+                  end = None
+                  for j in range(start, min(len(lines), hit + 80)):
+                      depth += lines[j].count("{") - lines[j].count("}")
+                      if j > start and depth <= 0:
+                          end = j
+                          break
+                  if end is None:
+                      raise SystemExit(f"Could not safely determine end of guard for {marker}")
+                  del lines[start:end + 1]
+
+          svc = Path("lib/services/attendance_service.dart").read_text(encoding="utf-8")
+          svc = remove_guard(svc, "if (cleaned.isEmpty)")
+          svc = remove_guard(svc, "if (wifiName == null || wifiName.isEmpty)")
+          # Remove any orphaned Wi-Fi normalization chain left without its declaration.
+          lines = svc.splitlines()
+          out = []
+          skip_chain = False
+          for line in lines:
+              stripped = line.strip()
+              if stripped.startswith("?.replaceAll('"', '')"):
+                  continue
+              out.append(line)
+          svc = "\n".join(out) + "\n"
+          Path("lib/services/attendance_service.dart").write_text(svc, encoding="utf-8")
+
           # Hard validation: Wi-Fi must not remain in the attendance decision path.
           for path in ["lib/services/attendance_service.dart", "firestore.rules"]:
               text = Path(path).read_text(encoding="utf-8")
