@@ -28,6 +28,38 @@ jobs:
           test -n "$ROOT"
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
 
+      - name: Apply requested branding update only
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('.')
+          replacements = {
+              'Built by WIZZARD NATION': 'Built by DIGITAL DYNAMOS',
+              'Built by Wizzard Nation': 'Built by DIGITAL DYNAMOS',
+              'WIZZARD NATION': 'DIGITAL DYNAMOS',
+              'Wizzard Nation': 'DIGITAL DYNAMOS',
+              'wizzard nation': 'digital dynamos',
+          }
+          changed = []
+          for p in root.rglob('*'):
+              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                  continue
+              try:
+                  text = p.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              new = text
+              for old, value in replacements.items():
+                  new = new.replace(old, value)
+              if new != text:
+                  p.write_text(new, encoding='utf-8')
+                  changed.append(str(p))
+          print('Branding files changed:', changed if changed else 'none')
+          PY
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
