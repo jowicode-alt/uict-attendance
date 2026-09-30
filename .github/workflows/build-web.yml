@@ -5,13 +5,27 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-web:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Extract Flutter source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
+          ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -21,14 +35,33 @@ jobs:
           cache: true
 
       - name: Get dependencies
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter pub get
 
       - name: Build Web
+        working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter build web --release
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy Web to Firebase Hosting
+        working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s\n' '{"projects":{"default":"attendence-uict-bbit"},"targets":{"attendence-uict-bbit":{"hosting":{"uict-site":["attendence-uict-bbit"]}}}}' > .firebaserc
+          printf '%s\n' '{"hosting":{"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"],"cleanUrls":false,"headers":[{"source":"**","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]}]}}' > firebase.json
+          firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
 
       - name: Upload Web artifact
         uses: actions/upload-artifact@v4
         with:
           name: uict-attendance-web
-          path: build/web
+          path: ${{ env.PROJECT_ROOT }}/build/web
           if-no-files-found: error
