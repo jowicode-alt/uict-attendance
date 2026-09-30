@@ -39,7 +39,10 @@ jobs:
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter create . --platforms=web
 
-      - name: Configure Firebase Web
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Configure Firebase Web non-interactively
         working-directory: ${{ env.PROJECT_ROOT }}
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -49,37 +52,87 @@ jobs:
           : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          dart pub global activate flutterfire_cli
-          export PATH="$PATH:$HOME/.pub-cache/bin"
-          flutterfire configure --project=attendence-uict-bbit --platforms=web --yes
+
+          firebase apps:list --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-apps.json"
+          cp "$RUNNER_TEMP/firebase-apps.json" /tmp/firebase-apps.json
+
+          WEB_APP_ID="$(python3 - <<'PY'
+          import json
+          d=json.load(open("/tmp/firebase-apps.json"))
+          apps=d.get("result", d).get("apps", [])
+          web=[a for a in apps if str(a.get("platform","")).upper() in ("WEB","WEB_APP")]
+          if not web:
+              raise SystemExit("No Firebase Web app is registered in attendence-uict-bbit")
+          print(web[0]["appId"])
+          PY
+          )"
+          test -n "$WEB_APP_ID"
+
+          firebase apps:sdkconfig "$WEB_APP_ID" --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-web-config.json"
+
+          python3 - "$RUNNER_TEMP/firebase-web-config.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          cfg=json.load(open(sys.argv[1]))
+          cfg=cfg.get("result", cfg)
+          if "sdkConfig" in cfg:
+              cfg=cfg["sdkConfig"]
+          web=cfg.get("configuration") or cfg.get("web") or cfg
+          required=["apiKey","appId","messagingSenderId","projectId"]
+          missing=[k for k in required if not web.get(k)]
+          if missing:
+              raise SystemExit("Missing Firebase Web config fields: "+", ".join(missing))
+          def dart(v):
+              return json.dumps(v)
+          lines=[
+              "import 'package:firebase_core/firebase_core.dart';",
+              "",
+              "class DefaultFirebaseOptions {",
+              "  static FirebaseOptions get currentPlatform => web;",
+              "",
+              "  static const FirebaseOptions web = FirebaseOptions(",
+              f"    apiKey: {dart(web['apiKey'])},",
+              f"    appId: {dart(web['appId'])},",
+              f"    messagingSenderId: {dart(web['messagingSenderId'])},",
+              f"    projectId: {dart(web['projectId'])},",
+          ]
+          for k in ["authDomain","storageBucket","measurementId"]:
+              if web.get(k):
+                  lines.append(f"    {k}: {dart(web[k])},")
+          lines += ["  );", "}", ""]
+          out=Path("lib/firebase_options.dart")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text("\n".join(lines))
+          print("Generated", out)
+          PY
 
           python3 - <<'PY'
           from pathlib import Path
-          root = Path(".")
-          opts = root / "lib" / "firebase_options.dart"
+          root=Path(".")
+          opts=root/"lib"/"firebase_options.dart"
           if not opts.exists():
               raise SystemExit("firebase_options.dart was not generated")
-          candidates = list(root.rglob("*.dart"))
-          target = None
-          for p in candidates:
-              if "Firebase.initializeApp()" in p.read_text(errors="ignore"):
-                  target = p
+          target=None
+          for p in root.rglob("*.dart"):
+              if "firebase_options.dart" in str(p):
+                  continue
+              t=p.read_text(errors="ignore")
+              if "Firebase.initializeApp()" in t:
+                  target=p
                   break
           if target is None:
               raise SystemExit("No Firebase.initializeApp() call found")
-          text = target.read_text()
-          rel = Path(__file__) if False else None
-          import_path = Path("lib/firebase_options.dart")
-          rel = Path(__import__("os").path.relpath(import_path, target.parent))
-          imp = f"import '{rel.as_posix()}';"
+          text=target.read_text()
+          rel=Path(__import__("os").path.relpath(opts, target.parent)).as_posix()
+          imp=f"import '{rel}';"
           if imp not in text:
-              lines = text.splitlines()
-              i = 0
-              while i < len(lines) and (lines[i].startswith("import ") or lines[i].strip()=="" or lines[i].startswith("///") or lines[i].startswith("//")):
-                  i += 1
+              lines=text.splitlines()
+              i=0
+              while i<len(lines) and (lines[i].startswith("import ") or lines[i].strip()=="" or lines[i].startswith("///") or lines[i].startswith("//")):
+                  i+=1
               lines.insert(i, imp)
-              text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
-          text = text.replace("Firebase.initializeApp()", "Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)")
+              text="\n".join(lines)+("\n" if text.endswith("\n") else "")
+          text=text.replace("Firebase.initializeApp()", "Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)")
           target.write_text(text)
           print(f"Configured Firebase initialization in {target}")
           PY
@@ -91,9 +144,6 @@ jobs:
       - name: Build Web
         working-directory: ${{ env.PROJECT_ROOT }}
         run: flutter build web --release
-
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
 
       - name: Deploy Web to Firebase Hosting
         working-directory: ${{ env.PROJECT_ROOT }}
