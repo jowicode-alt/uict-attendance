@@ -63,6 +63,22 @@ jobs:
                   p.write_text(new, encoding='utf-8')
                   changed.append(str(p))
           print('Branding files changed:', changed if changed else 'none')
+          # Confirm the requested platform-neutral GPS wording is actually present in the extracted source.
+          found = []
+          for p in root.rglob('*'):
+              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
+                  continue
+              try:
+                  t = p.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              if "Use this phone's current location" in t:
+                  raise SystemExit(f"Old GPS wording remains in {p}")
+              if "Use this device's current location" in t:
+                  found.append(str(p))
+          if not found:
+              raise SystemExit("New GPS wording was not found in extracted source")
+          print('GPS wording verified:', found)
           PY
 
       - name: Remove Wi-Fi verification only
