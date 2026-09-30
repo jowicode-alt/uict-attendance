@@ -129,31 +129,40 @@ jobs:
           import re
 
           root = Path('.')
+          term_re = re.compile(r'(?i)\b(administrators?|admins?)\b')
 
-          # Change only user-facing text inside quoted strings. Do not change
-          # internal role identifiers, database fields, variable names, or code.
-          term_re = re.compile(r'(?i)(administrators?|admins?|admin)(?![A-Za-z])')
+          def change_ui_string_body(body):
+              # Preserve exact internal role identifiers/values such as
+              # 'administrator' and 'admin'. Change terminology when it is
+              # part of a user-facing phrase.
+              if body.strip().lower() in {'administrator', 'administrators', 'admin', 'admins'}:
+                  return body
+              return term_re.sub(
+                  lambda m: (
+                      'Lecturers' if m.group(0).lower() in {'administrators', 'admins'}
+                      else 'Lecturer'
+                  ) if m.group(0)[0].isupper()
+                  else (
+                      'lecturers' if m.group(0).lower() in {'administrators', 'admins'}
+                      else 'lecturer'
+                  ),
+                  body
+              )
 
           def replace_in_quoted_strings(text):
               out = []
               i = 0
-              n = len(text)
               changed = False
+              n = len(text)
               while i < n:
-                  ch = text[i]
-                  # Dart triple-quoted strings.
                   if text.startswith("'''", i) or text.startswith('"""', i):
                       quote = text[i:i+3]
                       j = i + 3
                       while j < n:
                           if text.startswith(quote, j) and (j == 0 or text[j-1] != '\\'):
                               body = text[i+3:j]
-                              new_body = term_re.sub(
-                                  lambda m: 'Lecturer' if m.group(0)[0].isupper() else 'lecturer',
-                                  body
-                              )
-                              if new_body != body:
-                                  changed = True
+                              new_body = change_ui_string_body(body)
+                              changed |= new_body != body
                               out.append(quote + new_body + quote)
                               i = j + 3
                               break
@@ -163,18 +172,14 @@ jobs:
                           i = n
                       continue
 
-                  if ch in ("'", '"'):
-                      quote = ch
+                  if text[i] in ("'", '"'):
+                      quote = text[i]
                       j = i + 1
                       body = []
                       while j < n:
-                          if text[j] == '\\':
-                              if j + 1 < n:
-                                  body.extend([text[j], text[j+1]])
-                                  j += 2
-                                  continue
-                              body.append(text[j])
-                              j += 1
+                          if text[j] == '\\' and j + 1 < n:
+                              body.extend([text[j], text[j+1]])
+                              j += 2
                               continue
                           if text[j] == quote:
                               break
@@ -185,22 +190,13 @@ jobs:
                           i = n
                           continue
                       body_text = ''.join(body)
-                      new_body = term_re.sub(
-                          lambda m: (
-                              'Lecturers' if m.group(0).lower() in ('administrators', 'admins')
-                              and m.group(0)[-1].lower() == 's'
-                              else 'Lecturer' if m.group(0)[0].isupper()
-                              else 'lecturer'
-                          ),
-                          body_text
-                      )
-                      if new_body != body_text:
-                          changed = True
+                      new_body = change_ui_string_body(body_text)
+                      changed |= new_body != body_text
                       out.append(quote + new_body + quote)
                       i = j + 1
                       continue
 
-                  out.append(ch)
+                  out.append(text[i])
                   i += 1
               return ''.join(out), changed
 
@@ -219,7 +215,8 @@ jobs:
 
           print('Lecturer terminology files changed:', changed_files if changed_files else 'none')
 
-          # Verify user-facing Administrator/Admin wording is gone from quoted strings.
+          # Verify the user-facing capitalized terminology is gone while exact
+          # internal role identifiers remain allowed.
           remaining = []
           for p in root.rglob('*'):
               if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
@@ -228,14 +225,13 @@ jobs:
                   text = p.read_text(encoding='utf-8')
               except (UnicodeDecodeError, OSError):
                   continue
-              new, _ = replace_in_quoted_strings(text)
-              if re.search(r'(?i)(administrators?|admins?|admin)(?![A-Za-z])', new):
-                  # Only report if the term still exists in source text; internal
-                  # identifiers are intentionally allowed and are not changed.
-                  if any(x in new for x in ['"Administrator', "'Administrator", '"administrator', "'administrator", '"Admin ', "'Admin ", '"admin ', "'admin "]):
-                      remaining.append(str(p))
-          if remaining:
-              raise SystemExit("User-facing Administrator/Admin wording may remain in: " + ", ".join(remaining))
+              transformed, _ = replace_in_quoted_strings(text)
+              if transformed != text:
+                  # Re-running the transform must be a no-op.
+                  raise SystemExit(f"Lecturer terminology transformation was not stable in {p}")
+              for line in text.splitlines():
+                  if re.search(r"""['"][^'"]*\b(?:Administrator|Administrators|Admin|Admins)\b[^'"]*['"]""", line):
+                      raise SystemExit(f"User-facing Administrator/Admin wording remains in {p}: {line[:500]}")
           PY
 
       - name: Remove Wi-Fi verification only
