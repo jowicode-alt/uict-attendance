@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      restore_app:
+        description: "Set true to restore the full attendance web app instead of the temporary notice"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -13,7 +19,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  holding-page:
+    if: github.event_name == 'push' || inputs.restore_app != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Create temporary unavailable page
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p holding-site
+          cat > holding-site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="theme-color" content="#0B1F3A">
+            <title>UICT ATTENDANCE — Temporarily Unavailable</title>
+            <style>
+              * { box-sizing: border-box; }
+              body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f4f6fa; color: #172033; font-family: Arial, sans-serif; }
+              main { width: min(100%, 520px); padding: 36px 28px; background: #fff; border-radius: 18px; text-align: center; box-shadow: 0 12px 40px rgba(11,31,58,.10); }
+              h1 { margin: 0 0 18px; color: #0B1F3A; font-size: clamp(24px, 5vw, 32px); }
+              p { margin: 0; line-height: 1.65; font-size: 16px; }
+              .status { display: inline-block; margin-bottom: 18px; padding: 7px 12px; border-radius: 999px; background: #fff1d6; color: #805400; font-size: 13px; font-weight: 700; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <div class="status">Temporarily unavailable</div>
+              <h1>UICT ATTENDANCE</h1>
+              <p>The website is temporarily unavailable while updates are being prepared. Please check back later.</p>
+            </main>
+          </body>
+          </html>
+          HTML
+          cat > holding-site/firebase.json <<'JSON'
+          {"hosting":{"public":".","ignore":["firebase.json","**/.*","**/node_modules/**"],"cleanUrls":false,"headers":[{"source":"**","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]}]}}
+          JSON
+          printf '%s\\n' '{"projects":{"default":"attendence-uict-bbit"},"targets":{"attendence-uict-bbit":{"hosting":{"uict-site":["attendence-uict-bbit"]}}}}' > holding-site/.firebaserc
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy temporary unavailable page
+        working-directory: holding-site
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
+
   build-web:
+    if: github.event_name == 'workflow_dispatch' && inputs.restore_app == true
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
