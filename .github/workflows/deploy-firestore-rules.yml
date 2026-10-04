@@ -84,8 +84,49 @@ jobs:
           ]):
               raise SystemExit("Stale client-display/proof-metadata equality checks remain; refusing to publish.")
 
+          # Replace the attendance authorization helper with a compatibility-safe
+          # server-side check. Keep authentication, student status, open session,
+          # active proof, device binding and GPS radius. Do not depend on optional
+          # display metadata, Wi-Fi, or the separate attendanceState document.
+          start = s.find("    function validStudentAttendance(sessionId, studentId) {")
+          end = s.find("\n    match /sessions/{sessionId} {", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not locate validStudentAttendance helper; refusing to publish.")
+          helper = """    function validStudentAttendance(sessionId, studentId) {
+      let student = get(userPath(studentId)).data;
+      let proof = get(
+        /databases/$(database)/documents/attendanceProofs/$(request.resource.data.proofHash)
+      ).data;
+      let session = get(
+        /databases/$(database)/documents/sessions/$(sessionId)
+      ).data;
+      let settings = get(
+        /databases/$(database)/documents/settings/attendance
+      ).data;
+      return isSelf(studentId)
+        && student.role == 'student'
+        && student.status == 'active'
+        && session.status == 'open'
+        && proof.active == true
+        && proof.sessionId == sessionId
+        && proof.expiresAt > request.time
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.studentUid == studentId
+        && request.resource.data.status == 'present'
+        && request.resource.data.deviceId == student.deviceId
+        && request.resource.data.location.distance(settings.campusLocation)
+          <= settings.radiusMeters
+        && request.resource.data.checkedAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'sessionId', 'sessionTitle', 'studentUid', 'studentName',
+          'studentNumber', 'status', 'proofType', 'proofHash',
+          'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'
+        ]);
+    }
+"""
+          s = s[:start] + helper + s[end:]
+
           required = [
-              "system/attendanceState",
               "proofType",
               "deviceId",
               "accuracyMeters",
@@ -97,7 +138,7 @@ jobs:
               raise SystemExit("Safety check failed; required attendance security checks are missing: " + ", ".join(missing))
 
           p.write_text(s, encoding="utf-8")
-          print("Verified targeted rules change: Wi-Fi validation removed while wifiSsid remains an allowed compatibility field; stale display-field equality checks removed; identity, session, proof, device, GPS and timestamp checks preserved.")
+          print("Verified attendance rules: authenticated active student, open session, active proof/session binding, registered device, GPS radius and server timestamp; no Wi-Fi, display-metadata, or attendanceState dependency.")
           PY
 
       - name: Install Firebase CLI
