@@ -172,6 +172,9 @@ service cloud.firestore {
     }
 
     function validStudentAttendance(sessionId, studentId) {
+      let settings = get(
+        /databases/$(database)/documents/settings/attendance
+      ).data;
       let student = get(userPath(studentId)).data;
       let proof = get(
         /databases/$(database)/documents/attendanceProofs/$(request.resource.data.proofHash)
@@ -185,6 +188,8 @@ service cloud.firestore {
         && student.deviceId == request.resource.data.deviceId
         && session.status == 'open'
         && proof.active == true
+        && request.resource.data.location.distance(settings.campusLocation)
+          <= settings.radiusMeters
         && proof.sessionId == sessionId
         && proof.expiresAt > request.time
         && request.resource.data.sessionId == sessionId
@@ -200,12 +205,10 @@ service cloud.firestore {
         ]);
     }
     match /sessions/{sessionId} {
-      // Students may discover only sessions that are currently open.
-      // Queries must constrain status == 'open'; closed sessions remain admin-only.
-      allow get: if isAdmin()
-        || (signedIn() && resource.data.status == 'open');
-      allow list: if isAdmin()
-        || (signedIn() && resource.data.status == 'open');
+      // Signed-in users may always load the home/session data; attendance creation
+      // remains restricted to an open session by validStudentAttendance().
+      allow get: if signedIn();
+      allow list: if signedIn();
       allow create, update: if isAdmin();
       allow delete: if false;
 
@@ -217,6 +220,13 @@ service cloud.firestore {
           || validStudentAttendance(sessionId, studentId);
         allow update, delete: if isAdmin();
       }
+    }
+
+    // Collection-group access for attendance history and administrator reports.
+    // Students are restricted to their own record documents; admins may read all records.
+    match /{path=**}/records/{studentId} {
+      allow read: if isAdmin() || isSelf(studentId);
+      allow write: if false;
     }
 
     match /{document=**} {
