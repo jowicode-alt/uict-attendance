@@ -2,6 +2,9 @@ name: Inspect Firestore Rules Source
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/inspect-firestore-rules.yml"
 
 permissions:
   contents: read
@@ -12,7 +15,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Extract source and upload rules
+      - name: Extract source and inspect attendance-code flow
         shell: bash
         run: |
           set -euo pipefail
@@ -20,13 +23,38 @@ jobs:
           ARCHIVE="$(find . -maxdepth 1 -type f -name 'UICT_ATTENDANCE_Source_*.zip' | sort -V | tail -n 1)"
           test -n "$ARCHIVE"
           unzip -q "$ARCHIVE" -d source
-          RULES="$(find source -name firestore.rules -type f -print -quit)"
-          test -n "$RULES"
-          cp "$RULES" firestore.rules.inspect
-          sed -n '1,260p' "$RULES"
-      - name: Upload rules artifact
+          RULES="$(find source -name firestore.rules -type f -print -quit || true)"
+          if [ -n "$RULES" ]; then
+            cp "$RULES" firestore.rules.inspect
+            echo "=== ARCHIVED FIRESTORE RULES ==="
+            sed -n '1,260p' "$RULES"
+          fi
+          echo "=== ATTENDANCE CODE / SESSION / PROOF REFERENCES ==="
+          find source -type f -name '*.dart' -print0 | xargs -0 grep -n -i -E 'attendanceCode|submit attendance code|proofHash|attendanceProofs|collection\(.sessions.\)|where\(.status.|permission-denied' | head -n 220 || true
+          echo "=== MATCHING CONTEXT ==="
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          patterns = re.compile(r'attendanceCode|proofHash|attendanceProofs|submit attendance code|collection\([\'"]sessions[\'"]\)|permission-denied', re.I)
+          count = 0
+          for path in Path("source").rglob("*.dart"):
+              lines = path.read_text(errors="ignore").splitlines()
+              hits = [i for i, line in enumerate(lines) if patterns.search(line)]
+              for i in hits:
+                  lo, hi = max(0, i-5), min(len(lines), i+7)
+                  print(f"--- {path}:{i+1} ---")
+                  for n in range(lo, hi):
+                      print(f"{n+1}: {lines[n]}")
+                  count += 1
+                  if count >= 35:
+                      raise SystemExit(0)
+          PY
+      - name: Upload archived rules and source references
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firestore-rules-source
-          path: firestore.rules.inspect
+          name: firestore-and-attendance-source-inspection
+          path: |
+            firestore.rules.inspect
+          if-no-files-found: ignore
           retention-days: 7
