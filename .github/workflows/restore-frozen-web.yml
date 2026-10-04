@@ -1,0 +1,43 @@
+name: Restore Frozen Web Build #76
+
+on:
+  push:
+    paths:
+      - ".github/workflows/restore-frozen-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download exact Web build #76 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: uict-attendance-web
+          path: web
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36767392386
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy frozen Web build only
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s\n' '{"projects":{"default":"attendence-uict-bbit"},"targets":{"attendence-uict-bbit":{"hosting":{"uict-site":["attendence-uict-bbit"]}}}}' > .firebaserc
+          printf '%s\n' '{"hosting":{"public":"web","ignore":["firebase.json","**/.*","**/node_modules/**"],"cleanUrls":false,"headers":[{"source":"**","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]}]}}' > firebase.json
+          test -f web/index.html
+          test -f web/main.dart.js
+          firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
