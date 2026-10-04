@@ -41,3 +41,5 @@ jobs:
           test -f web/index.html
           test -f web/main.dart.js
           firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
+
+# Manual restoration trigger refreshed 2026-10-04.
