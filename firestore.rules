@@ -225,7 +225,10 @@ service cloud.firestore {
     // Collection-group access for attendance history and administrator reports.
     // Students are restricted to their own record documents; admins may read all records.
     match /{path=**}/records/{studentId} {
-      allow read: if isAdmin() || isSelf(studentId);
+      // Supports the student's collection-group history query, which filters
+      // records by the student's UID without exposing other students' records.
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.studentUid == request.auth.uid);
       allow write: if false;
     }
 
