@@ -52,10 +52,12 @@ jobs:
               raise SystemExit("Expected Wi-Fi attendance rule was not found; refusing to publish an unverified rules change.")
           s = s.replace(wifi_rule, "", 1)
 
+          # Wi-Fi is no longer an attendance requirement, but older clients may
+          # still send wifiSsid. Keep the field allowed without validating it.
           old_keys = "'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'"
-          new_keys = "'deviceId', 'location', 'accuracyMeters', 'checkedAt'"
+          new_keys = "'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'"
           if old_keys not in s:
-              raise SystemExit("Expected Wi-Fi attendance key list was not found; refusing to publish an unverified rules change.")
+              raise SystemExit("Expected attendance key list was not found; refusing to publish an unverified rules change.")
           s = s.replace(old_keys, new_keys, 1)
 
           for check in [
@@ -66,8 +68,11 @@ jobs:
                   raise SystemExit("Expected stale student display-field check was not found; refusing to publish an unverified rules change.")
               s = s.replace(check, "", 1)
 
-          if "wifiSsid" in s or "allowedWifiSsids" in s:
-              raise SystemExit("Wi-Fi attendance references remain in firestore.rules; refusing to publish.")
+          if "request.resource.data.wifiSsid in settings.allowedWifiSsids" in s:
+              raise SystemExit("Wi-Fi attendance validation remains in firestore.rules; refusing to publish.")
+
+          if "allowedWifiSsids" in s:
+              raise SystemExit("Wi-Fi settings dependency remains in firestore.rules; refusing to publish.")
 
           if "request.resource.data.studentName == student.fullName" in s or "request.resource.data.studentNumber == student.studentNumber" in s:
               raise SystemExit("Stale student display-field equality checks remain; refusing to publish.")
@@ -86,7 +91,7 @@ jobs:
               raise SystemExit("Safety check failed; required attendance security checks are missing: " + ", ".join(missing))
 
           p.write_text(s, encoding="utf-8")
-          print("Verified targeted rules change: Wi-Fi and stale display-field equality checks removed; identity, session, proof, device, GPS and timestamp checks preserved.")
+          print("Verified targeted rules change: Wi-Fi validation removed while wifiSsid remains an allowed compatibility field; stale display-field equality checks removed; identity, session, proof, device, GPS and timestamp checks preserved.")
           PY
 
       - name: Install Firebase CLI
