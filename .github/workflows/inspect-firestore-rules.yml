@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Extract source and inspect attendance-code flow
+      - name: Extract source and inspect history home reports and radius
         shell: bash
         run: |
           set -euo pipefail
@@ -29,8 +29,8 @@ jobs:
             echo "=== ARCHIVED FIRESTORE RULES ==="
             sed -n '1,260p' "$RULES"
           fi
-          echo "=== ATTENDANCE CODE / SESSION / PROOF REFERENCES ==="
-          find source -type f -name '*.dart' -print0 | xargs -0 grep -n -i -E 'attendanceCode|submit attendance code|proofHash|attendanceProofs|collection\(.sessions.\)|where\(.status.|permission-denied' | head -n 220 || true
+          echo "=== HISTORY / HOME / REPORTS / RADIUS REFERENCES ==="
+          find source -type f -name '*.dart' -print0 | xargs -0 grep -n -i -E 'attendanceCode|proofHash|attendanceProofs|collection\(.sessions.\)|collectionGroup|records|history|report|dashboard|home|radius|campus|latitude|longitude|distance|location|permission-denied' | head -n 220 || true
           echo "=== MATCHING CONTEXT ==="
           python3 - <<'PY'
           from pathlib import Path
@@ -46,14 +46,14 @@ jobs:
                   for n in range(lo, hi):
                       print(f"{n+1}: {lines[n]}")
                   count += 1
-                  if count >= 35:
+                  if count >= 80:
                       raise SystemExit(0)
           PY
       - name: Upload archived rules and source references
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: firestore-and-attendance-source-inspection
+          name: uiict-source-inspection
           path: |
             firestore.rules.inspect
           if-no-files-found: ignore
