@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - ".github/workflows/deploy-firestore-rules.yml"
+      - "UICT_ATTENDANCE_Source_*.zip"
 
 permissions:
   contents: read
@@ -24,7 +25,10 @@ jobs:
           set -euo pipefail
           rm -rf source
           mkdir -p source
-          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
+          ARCHIVE="$(find . -maxdepth 1 -type f -name 'UICT_ATTENDANCE_Source_*.zip' | sort -V | tail -n 1)"
+          test -n "$ARCHIVE"
+          echo "Using source archive: $ARCHIVE"
+          unzip -q "$ARCHIVE" -d source
           ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
           test -n "$ROOT"
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
