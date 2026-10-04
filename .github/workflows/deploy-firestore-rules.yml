@@ -58,8 +58,19 @@ jobs:
               raise SystemExit("Expected Wi-Fi attendance key list was not found; refusing to publish an unverified rules change.")
           s = s.replace(old_keys, new_keys, 1)
 
+          for check in [
+              "        && request.resource.data.studentName == student.fullName\n",
+              "        && request.resource.data.studentNumber == student.studentNumber\n",
+          ]:
+              if check not in s:
+                  raise SystemExit("Expected stale student display-field check was not found; refusing to publish an unverified rules change.")
+              s = s.replace(check, "", 1)
+
           if "wifiSsid" in s or "allowedWifiSsids" in s:
               raise SystemExit("Wi-Fi attendance references remain in firestore.rules; refusing to publish.")
+
+          if "request.resource.data.studentName == student.fullName" in s or "request.resource.data.studentNumber == student.studentNumber" in s:
+              raise SystemExit("Stale student display-field equality checks remain; refusing to publish.")
 
           required = [
               "system/attendanceState",
