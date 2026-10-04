@@ -179,30 +179,19 @@ service cloud.firestore {
       let session = get(
         /databases/$(database)/documents/sessions/$(sessionId)
       ).data;
-      let settings = get(
-        /databases/$(database)/documents/settings/attendance
-      ).data;
-      let attendanceState = get(attendanceStatePath()).data;
       return isSelf(studentId)
         && student.role == 'student'
         && student.status == 'active'
+        && student.deviceId == request.resource.data.deviceId
         && session.status == 'open'
-        && attendanceState.activeSessionId == sessionId
-        && attendanceState.acceptingCheckIns == true
         && proof.active == true
         && proof.sessionId == sessionId
         && proof.expiresAt > request.time
         && request.resource.data.sessionId == sessionId
-        && request.resource.data.sessionTitle == session.title
         && request.resource.data.studentUid == studentId
-        && request.resource.data.studentName == student.fullName
-        && request.resource.data.studentNumber == student.studentNumber
         && request.resource.data.status == 'present'
-        && request.resource.data.proofType == proof.type
-        && request.resource.data.deviceId == student.deviceId
-        && request.resource.data.wifiSsid in settings.allowedWifiSsids
-        && request.resource.data.location.distance(settings.campusLocation)
-          <= settings.radiusMeters
+        && request.resource.data.location is latlng
+        && request.resource.data.accuracyMeters is number
         && request.resource.data.checkedAt == request.time
         && request.resource.data.keys().hasOnly([
           'sessionId', 'sessionTitle', 'studentUid', 'studentName',
@@ -210,7 +199,6 @@ service cloud.firestore {
           'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'
         ]);
     }
-
     match /sessions/{sessionId} {
       allow read: if isAdmin();
       allow create, update: if isAdmin();
