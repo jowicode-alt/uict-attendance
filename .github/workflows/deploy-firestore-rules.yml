@@ -63,6 +63,8 @@ jobs:
           for check in [
               "        && request.resource.data.studentName == student.fullName\n",
               "        && request.resource.data.studentNumber == student.studentNumber\n",
+              "        && request.resource.data.sessionTitle == session.title\n",
+              "        && request.resource.data.proofType == proof.type\n",
           ]:
               if check not in s:
                   raise SystemExit("Expected stale student display-field check was not found; refusing to publish an unverified rules change.")
@@ -74,12 +76,16 @@ jobs:
           if "allowedWifiSsids" in s:
               raise SystemExit("Wi-Fi settings dependency remains in firestore.rules; refusing to publish.")
 
-          if "request.resource.data.studentName == student.fullName" in s or "request.resource.data.studentNumber == student.studentNumber" in s:
-              raise SystemExit("Stale student display-field equality checks remain; refusing to publish.")
+          if any(x in s for x in [
+              "request.resource.data.studentName == student.fullName",
+              "request.resource.data.studentNumber == student.studentNumber",
+              "request.resource.data.sessionTitle == session.title",
+              "request.resource.data.proofType == proof.type",
+          ]):
+              raise SystemExit("Stale client-display/proof-metadata equality checks remain; refusing to publish.")
 
           required = [
               "system/attendanceState",
-              "acceptingCheckIns",
               "proofType",
               "deviceId",
               "accuracyMeters",
