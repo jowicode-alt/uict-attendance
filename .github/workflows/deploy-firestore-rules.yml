@@ -1,0 +1,89 @@
+name: Deploy Firestore Rules Only
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/deploy-firestore-rules.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Flutter source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf source
+          mkdir -p source
+          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
+          ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
+          test -n "$ROOT"
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Remove only Wi-Fi attendance requirement from Firestore rules
+        working-directory: ${{ env.PROJECT_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("firestore.rules")
+          if not p.exists():
+              raise SystemExit("firestore.rules not found")
+
+          s = p.read_text(encoding="utf-8")
+
+          wifi_rule = "        && request.resource.data.wifiSsid in settings.allowedWifiSsids\\n"
+          if wifi_rule not in s:
+              raise SystemExit("Expected Wi-Fi attendance rule was not found; refusing to publish an unverified rules change.")
+          s = s.replace(wifi_rule, "", 1)
+
+          old_keys = "'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'"
+          new_keys = "'deviceId', 'location', 'accuracyMeters', 'checkedAt'"
+          if old_keys not in s:
+              raise SystemExit("Expected Wi-Fi attendance key list was not found; refusing to publish an unverified rules change.")
+          s = s.replace(old_keys, new_keys, 1)
+
+          if "wifiSsid" in s or "allowedWifiSsids" in s:
+              raise SystemExit("Wi-Fi attendance references remain in firestore.rules; refusing to publish.")
+
+          required = [
+              "system/attendanceState",
+              "acceptingCheckIns",
+              "proofType",
+              "deviceId",
+              "accuracyMeters",
+              "checkedAt",
+          ]
+          missing = [x for x in required if x not in s]
+          if missing:
+              raise SystemExit("Safety check failed; required attendance security checks are missing: " + ", ".join(missing))
+
+          p.write_text(s, encoding="utf-8")
+          print("Verified rules-only change: Wi-Fi requirement removed; other attendance security checks preserved.")
+          PY
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Deploy Firestore rules only
+        working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
+          firebase deploy --only firestore:rules --project attendence-uict-bbit --non-interactive
