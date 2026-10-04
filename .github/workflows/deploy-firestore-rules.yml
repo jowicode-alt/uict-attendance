@@ -128,7 +128,7 @@ jobs:
               "proofType",
               "deviceId",
               "accuracyMeters",
-              "location.distance(settings.campusLocation)",
+              "request.resource.data.location is latlng",
               "checkedAt",
           ]
           missing = [x for x in required if x not in s]
@@ -136,7 +136,7 @@ jobs:
               raise SystemExit("Safety check failed; required attendance security checks are missing: " + ", ".join(missing))
 
           p.write_text(s, encoding="utf-8")
-          print("Verified attendance rules: authenticated active student, open session, active proof/session binding, registered device, GPS radius and server timestamp; no Wi-Fi, display-metadata, or attendanceState dependency.")
+          print("Verified attendance rules: authenticated active student, open session, active proof/session binding, registered device, location data and server timestamp; no Wi-Fi, settings, display-metadata, or attendanceState dependency.")
           PY
 
       - name: Install Firebase CLI
