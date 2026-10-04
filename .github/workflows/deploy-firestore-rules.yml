@@ -93,37 +93,37 @@ jobs:
           if start < 0 or end < 0:
               raise SystemExit("Could not locate validStudentAttendance helper; refusing to publish.")
           helper = """    function validStudentAttendance(sessionId, studentId) {
-      let student = get(userPath(studentId)).data;
-      let proof = get(
-        /databases/$(database)/documents/attendanceProofs/$(request.resource.data.proofHash)
-      ).data;
-      let session = get(
-        /databases/$(database)/documents/sessions/$(sessionId)
-      ).data;
-      let settings = get(
-        /databases/$(database)/documents/settings/attendance
-      ).data;
-      return isSelf(studentId)
-        && student.role == 'student'
-        && student.status == 'active'
-        && session.status == 'open'
-        && proof.active == true
-        && proof.sessionId == sessionId
-        && proof.expiresAt > request.time
-        && request.resource.data.sessionId == sessionId
-        && request.resource.data.studentUid == studentId
-        && request.resource.data.status == 'present'
-        && request.resource.data.deviceId == student.deviceId
-        && request.resource.data.location.distance(settings.campusLocation)
-          <= settings.radiusMeters
-        && request.resource.data.checkedAt == request.time
-        && request.resource.data.keys().hasOnly([
-          'sessionId', 'sessionTitle', 'studentUid', 'studentName',
-          'studentNumber', 'status', 'proofType', 'proofHash',
-          'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'
-        ]);
-    }
-"""
+                let student = get(userPath(studentId)).data;
+                let proof = get(
+                  /databases/$(database)/documents/attendanceProofs/$(request.resource.data.proofHash)
+                ).data;
+                let session = get(
+                  /databases/$(database)/documents/sessions/$(sessionId)
+                ).data;
+                let settings = get(
+                  /databases/$(database)/documents/settings/attendance
+                ).data;
+                return isSelf(studentId)
+                  && student.role == 'student'
+                  && student.status == 'active'
+                  && session.status == 'open'
+                  && proof.active == true
+                  && proof.sessionId == sessionId
+                  && proof.expiresAt > request.time
+                  && request.resource.data.sessionId == sessionId
+                  && request.resource.data.studentUid == studentId
+                  && request.resource.data.status == 'present'
+                  && request.resource.data.deviceId == student.deviceId
+                  && request.resource.data.location.distance(settings.campusLocation)
+                    <= settings.radiusMeters
+                  && request.resource.data.checkedAt == request.time
+                  && request.resource.data.keys().hasOnly([
+                    'sessionId', 'sessionTitle', 'studentUid', 'studentName',
+                    'studentNumber', 'status', 'proofType', 'proofHash',
+                    'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'
+                  ]);
+              }
+          """
           s = s[:start] + helper + s[end:]
 
           required = [
