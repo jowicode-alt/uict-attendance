@@ -1,0 +1,233 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(currentUserPath());
+    }
+
+    function currentProfile() {
+      return get(currentUserPath()).data;
+    }
+
+    function isAdmin() {
+      return hasProfile()
+        && currentProfile().role == 'admin'
+        && currentProfile().status == 'active';
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function bootstrapPath() {
+      return /databases/$(database)/documents/system/bootstrap;
+    }
+
+    function invitePath(hash) {
+      return /databases/$(database)/documents/adminInvites/$(hash);
+    }
+
+    function attendanceStatePath() {
+      return /databases/$(database)/documents/system/attendanceState;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function validStudentCreate(uid) {
+      return isSelf(uid)
+        && request.resource.data.role == 'student'
+        && request.resource.data.status == 'active'
+        && request.resource.data.deviceId is string
+        && request.resource.data.fullName is string
+        && request.resource.data.studentNumber is string
+        && request.resource.data.email is string
+        && request.resource.data.phone is string
+        && request.resource.data.photoBytes is bytes
+        && request.resource.data.photoBytes.size() > 0
+        && request.resource.data.photoBytes.size() <= 300000
+        && request.resource.data.photoContentType == 'image/jpeg'
+        && request.resource.data.keys().hasOnly([
+          'role', 'fullName', 'studentNumber', 'normalizedStudentNumber',
+          'email', 'phone', 'photoBytes', 'photoContentType', 'status',
+          'deviceId', 'deviceBoundAt', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validBootstrapAdmin(uid) {
+      return isSelf(uid)
+        && request.resource.data.role == 'admin'
+        && request.resource.data.status == 'active'
+        && request.resource.data.inviteCodeHash ==
+          '48bf349ea8e14b44f2270faa3f9fd1720a274dd7cfc3160f173d51eff956530d'
+        && !exists(bootstrapPath())
+        && getAfter(bootstrapPath()).data.firstAdminUid == uid;
+    }
+
+    function validInvitedAdmin(uid) {
+      let hash = request.resource.data.inviteCodeHash;
+      let invite = get(invitePath(hash)).data;
+      let finalInvite = getAfter(invitePath(hash)).data;
+      return isSelf(uid)
+        && request.resource.data.role == 'admin'
+        && request.resource.data.status == 'active'
+        && hash is string
+        && invite.used == false
+        && invite.revoked == false
+        && invite.expiresAt > request.time
+        && finalInvite.used == true
+        && finalInvite.usedBy == uid;
+    }
+
+    match /users/{uid} {
+      allow create: if validStudentCreate(uid)
+        || validBootstrapAdmin(uid)
+        || validInvitedAdmin(uid);
+      allow get: if isSelf(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow update: if isAdmin()
+        || (isSelf(uid)
+          && resource.data.role == 'student'
+          && resource.data.get('deviceId', null) == null
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['deviceId', 'deviceBoundAt', 'updatedAt']));
+      allow delete: if false;
+    }
+
+    match /loginAliases/{aliasId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.role == 'student'
+        && request.resource.data.email ==
+          getAfter(userPath(request.auth.uid)).data.email
+        && getAfter(userPath(request.auth.uid)).data.role == 'student'
+        && request.resource.data.keys().hasOnly([
+          'email', 'role', 'createdAt'
+        ]);
+      allow update, delete: if false;
+    }
+
+    match /system/bootstrap {
+      allow get: if isAdmin();
+      allow create: if signedIn()
+        && !exists(bootstrapPath())
+        && request.resource.data.firstAdminUid == request.auth.uid
+        && getAfter(userPath(request.auth.uid)).data.role == 'admin'
+        && getAfter(userPath(request.auth.uid)).data.inviteCodeHash ==
+          '48bf349ea8e14b44f2270faa3f9fd1720a274dd7cfc3160f173d51eff956530d';
+      allow update, delete: if false;
+    }
+
+    match /system/attendanceState {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /adminInvites/{inviteHash} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.used == false
+        && request.resource.data.revoked == false;
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.used == false
+          && resource.data.revoked == false
+          && resource.data.expiresAt > request.time
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['used', 'usedBy', 'usedAt'])
+          && request.resource.data.used == true
+          && request.resource.data.usedBy == request.auth.uid
+          && request.resource.data.usedAt == request.time
+          && getAfter(userPath(request.auth.uid)).data.role == 'admin'
+          && getAfter(userPath(request.auth.uid)).data.inviteCodeHash == inviteHash);
+      allow delete: if false;
+    }
+
+    match /settings/{settingId} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /attendanceProofs/{proofHash} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    function validStudentAttendance(sessionId, studentId) {
+      let student = get(userPath(studentId)).data;
+      let proof = get(
+        /databases/$(database)/documents/attendanceProofs/$(request.resource.data.proofHash)
+      ).data;
+      let session = get(
+        /databases/$(database)/documents/sessions/$(sessionId)
+      ).data;
+      let settings = get(
+        /databases/$(database)/documents/settings/attendance
+      ).data;
+      let attendanceState = get(attendanceStatePath()).data;
+      return isSelf(studentId)
+        && student.role == 'student'
+        && student.status == 'active'
+        && session.status == 'open'
+        && attendanceState.activeSessionId == sessionId
+        && attendanceState.acceptingCheckIns == true
+        && proof.active == true
+        && proof.sessionId == sessionId
+        && proof.expiresAt > request.time
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.sessionTitle == session.title
+        && request.resource.data.studentUid == studentId
+        && request.resource.data.studentName == student.fullName
+        && request.resource.data.studentNumber == student.studentNumber
+        && request.resource.data.status == 'present'
+        && request.resource.data.proofType == proof.type
+        && request.resource.data.deviceId == student.deviceId
+        && request.resource.data.wifiSsid in settings.allowedWifiSsids
+        && request.resource.data.location.distance(settings.campusLocation)
+          <= settings.radiusMeters
+        && request.resource.data.checkedAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'sessionId', 'sessionTitle', 'studentUid', 'studentName',
+          'studentNumber', 'status', 'proofType', 'proofHash',
+          'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'
+        ]);
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+
+      match /records/{studentId} {
+        allow read: if isAdmin()
+          || (isSelf(studentId)
+            && resource.data.studentUid == request.auth.uid);
+        allow create: if isAdmin()
+          || validStudentAttendance(sessionId, studentId);
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
