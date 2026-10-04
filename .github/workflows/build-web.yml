@@ -1,525 +1,88 @@
-name: Build Flutter Web
+name: UICT Web Maintenance
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-web.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: uict-web-build
-  cancel-in-progress: true
-
 jobs:
-  build-web:
+  maintenance:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract Flutter source
+      - name: Create maintenance page
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf source
-          mkdir -p source
-          unzip -q UICT_ATTENDANCE_Source_v1.0.0.zip -d source
-          ROOT="$(find source -name pubspec.yaml -type f -print -quit | xargs -r dirname)"
-          test -n "$ROOT"
-          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
-
-      - name: Apply requested branding update only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          root = Path('.')
-          replacements = {
-              'Built by WIZZARD NATION': 'Built by DIGITAL DYNAMOS',
-              'Built by Wizzard Nation': 'Built by DIGITAL DYNAMOS',
-              'WIZZARD NATION': 'DIGITAL DYNAMOS',
-              'Wizzard Nation': 'DIGITAL DYNAMOS',
-              'wizzard nation': 'digital dynamos',
-              "Use this phone's current location": "Use this device's current location",
-          }
-          changed = []
-          for p in root.rglob('*'):
-              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                  continue
-              try:
-                  text = p.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              new = text
-              for old, value in replacements.items():
-                  new = new.replace(old, value)
-              if new != text:
-                  p.write_text(new, encoding='utf-8')
-                  changed.append(str(p))
-          print('Branding files changed:', changed if changed else 'none')
-          PY
-
-      - name: Apply GPS wording update only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          root = Path('.')
-          old_re = re.compile(r"Use this\s+phone['’]s\s+current\s+location", re.IGNORECASE)
-          changed = []
-          for p in root.rglob('*'):
-              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                  continue
-              try:
-                  text = p.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              new = old_re.sub("Use this device's current location", text)
-              new = new.replace("Text('Use this device's current location')", 'Text("Use this device\'s current location")')
-              if new != text:
-                  p.write_text(new, encoding='utf-8')
-                  changed.append(str(p))
-          print('GPS wording files changed:', changed if changed else 'none')
-          matches = []
-          for p in root.rglob('*'):
-              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                  continue
-              try:
-                  t = p.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              if "Use this phone's current location" in t or "Use this phone’s current location" in t:
-                  raise SystemExit(f"Old GPS wording remains in {p}")
-              if "Use this device's current location" in t:
-                  matches.append(str(p))
-          if not matches:
-              # The source may use escaped/generated text; report all current-location occurrences for diagnosis.
-              for p in root.rglob('*'):
-                  if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                      continue
-                  try:
-                      t = p.read_text(encoding='utf-8')
-                  except (UnicodeDecodeError, OSError):
-                      continue
-                  if 'current location' in t.lower():
-                      print(f"CURRENT LOCATION TEXT in {p}:")
-                      for line in t.splitlines():
-                          if 'current location' in line.lower():
-                              print(line[:500])
-              raise SystemExit("Could not confirm the requested GPS wording in source")
-          print('GPS wording verified:', matches)
-          PY
-
-      - name: Apply Lecturer terminology update only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          root = Path('.')
-          term_re = re.compile(r'(?i)\b(administrators?|admins?)\b')
-
-          # Only rewrite strings that are actually used as UI text.
-          # Do not rewrite arbitrary quoted values because they may be
-          # authentication/role/database identifiers.
-          ui_markers = (
-              'Text(', 'RichText(', 'TextSpan(', 'AppBar(', 'SnackBar(',
-              'AlertDialog(', 'SimpleDialog(', 'showDialog(', 'showSnackBar(',
-              'labelText:', 'hintText:', 'helperText:', 'errorText:',
-              'tooltip:', 'title:', 'subtitle:', 'message:', 'content:',
-              'description:', 'semanticLabel:', 'buttonText:', 'emptyText:',
-          )
-
-          def change_body(body):
-              # Preserve exact role values, including capitalization.
-              if body.strip().lower() in {'administrator', 'administrators', 'admin', 'admins'}:
-                  return body
-              return term_re.sub(
-                  lambda m: (
-                      'Lecturers' if m.group(0).lower() in {'administrators', 'admins'} else 'Lecturer'
-                  ) if m.group(0)[0].isupper() else (
-                      'lecturers' if m.group(0).lower() in {'administrators', 'admins'} else 'lecturer'
-                  ),
-                  body
-              )
-
-          def transform_ui_strings(text):
-              out = []
-              i = 0
-              changed = False
-              n = len(text)
-              while i < n:
-                  if text.startswith("'''", i) or text.startswith('"""', i):
-                      quote = text[i:i+3]
-                      j = i + 3
-                      while j < n:
-                          if text.startswith(quote, j) and (j == 0 or text[j-1] != '\\'):
-                              body = text[i+3:j]
-                              # Look back to the nearby code for a UI constructor/property.
-                              prefix = text[max(0, i-250):i]
-                              if any(marker in prefix for marker in ui_markers):
-                                  new_body = change_body(body)
-                              else:
-                                  new_body = body
-                              changed |= new_body != body
-                              out.append(quote + new_body + quote)
-                              i = j + 3
-                              break
-                          j += 1
-                      else:
-                          out.append(text[i:])
-                          i = n
-                      continue
-
-                  if text[i] in ("'", '"'):
-                      quote = text[i]
-                      j = i + 1
-                      body = []
-                      while j < n:
-                          if text[j] == '\\' and j + 1 < n:
-                              body.extend([text[j], text[j+1]])
-                              j += 2
-                              continue
-                          if text[j] == quote:
-                              break
-                          body.append(text[j])
-                          j += 1
-                      if j >= n:
-                          out.append(text[i:])
-                          i = n
-                          continue
-                      body_text = ''.join(body)
-                      prefix = text[max(0, i-250):i]
-                      if any(marker in prefix for marker in ui_markers):
-                          new_body = change_body(body_text)
-                      else:
-                          new_body = body_text
-                      changed |= new_body != body_text
-                      out.append(quote + new_body + quote)
-                      i = j + 1
-                      continue
-
-                  out.append(text[i])
-                  i += 1
-              return ''.join(out), changed
-
-          changed_files = []
-          for p in root.rglob('*'):
-              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                  continue
-              try:
-                  text = p.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              new, changed = transform_ui_strings(text)
-              if changed:
-                  p.write_text(new, encoding='utf-8')
-                  changed_files.append(str(p))
-
-          print('Lecturer terminology files changed:', changed_files if changed_files else 'none')
-
-          # Verify the requested UI terminology is gone from UI strings only.
-          for p in root.rglob('*'):
-              if not p.is_file() or any(part in {'.git', 'build', '.dart_tool'} for part in p.parts):
-                  continue
-              try:
-                  text = p.read_text(encoding='utf-8')
-              except (UnicodeDecodeError, OSError):
-                  continue
-              transformed, _ = transform_ui_strings(text)
-              if transformed != text:
-                  raise SystemExit(f"Lecturer terminology transformation was not stable in {p}")
-
-          print("Lecturer terminology update verified without rewriting non-UI string values.")
-          PY
-
-      - name: Remove Wi-Fi verification only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          def edit(path, fn):
-              p = Path(path)
-              if not p.exists():
-                  raise SystemExit(f"Required source file missing: {path}")
-              old = p.read_text(encoding="utf-8")
-              new = fn(old)
-              p.write_text(new, encoding="utf-8")
-              print(f"updated {path}")
-
-          # Keep stored Wi-Fi configuration fields for backward compatibility.
-          def model(s):
-              lines = s.splitlines()
-              hit = next((i for i, line in enumerate(lines) if "bool get isConfigured =>" in line), None)
-              if hit is None:
-                  raise SystemExit("isConfigured getter not found")
-              end = None
-              for j in range(hit, min(len(lines), hit + 30)):
-                  if ";" in lines[j]:
-                      end = j
-                      break
-              if end is None:
-                  raise SystemExit("Could not safely determine end of isConfigured getter")
-              lines[hit:end + 1] = [
-                  "  bool get isConfigured => campusLocation != null && radiusMeters > 0;"
-              ]
-              return "\n".join(lines) + "\n"
-          edit("lib/models/attendance_models.dart", model)
-
-          def remove_service_wifi(s):
-              s = s.replace("import 'package:network_info_plus/network_info_plus.dart';\n", "")
-              s = s.replace("  final NetworkInfo _networkInfo = NetworkInfo();\n", "")
-              s = s.replace("    required List<String> wifiSsids,\n", "")
-              s = re.sub(r"(?m)^\s*wifiSsids:\s*[^,\n]+,\s*$", "", s)
-              # Remove the legacy saveSettings() Wi-Fi normalization/write block.
-              lines0 = s.splitlines()
-              cleaned0 = []
-              skip = False
-              for line in lines0:
-                  if line.strip().startswith("final cleaned = wifiSsids"):
-                      skip = True
-                      continue
-                  if skip:
-                      if line.strip() == ".toList();":
-                          skip = False
-                      continue
-                  if "'allowedWifiSsids': cleaned" in line:
-                      continue
-                  cleaned0.append(line)
-              if skip:
-                  raise SystemExit("Could not safely remove legacy Wi-Fi settings block")
-              s = "\n".join(cleaned0) + "\n"
-              s = re.sub(r"(?m)^\s*['\"]wifiSsid['\"]:\s*[^,\n]+,\s*$", "", s)
-              s = re.sub(r"(?m)^\s*(?:final|var)\s+wifiName\s*=.*$", "", s)
-
-              lines = s.splitlines()
-              for _ in range(20):
-                  targets = [i for i, line in enumerate(lines) if "allowedWifiSsids" in line]
-                  if not targets:
-                      break
-                  target = targets[0]
-                  block_start = None
-                  for i in range(target, max(-1, target - 100), -1):
-                      if re.match(r"^\s*if\b.*\{\s*$", lines[i]):
-                          block_start = i
-                          break
-                  if block_start is None:
-                      raise SystemExit("Found allowedWifiSsids but could not safely identify its if-block")
-                  depth = 0
-                  block_end = None
-                  for j in range(block_start, min(len(lines), target + 200)):
-                      depth += lines[j].count("{") - lines[j].count("}")
-                      if j > block_start and depth <= 0:
-                          block_end = j
-                          break
-                  if block_end is None:
-                      raise SystemExit("Found Wi-Fi if-block but could not safely determine its end")
-                  del lines[block_start:block_end + 1]
-              if any("allowedWifiSsids" in line for line in lines):
-                  raise SystemExit("More than 20 Wi-Fi attendance blocks remain; refusing unsafe edit")
-              return "\n".join(lines) + "\n"
-
-          edit("lib/services/attendance_service.dart", remove_service_wifi)
-
-          def remove_admin_wifi(s):
-              s = s.replace("  final _wifi = TextEditingController();\n", "")
-              s = s.replace("    _wifi.text = settings.allowedWifiSsids.join(', ');\n", "")
-              s = s.replace("    _wifi.dispose();\n", "")
-              s = s.replace("        wifiSsids: _wifi.text.split(','),\n", "")
-              s = s.replace("if (_wifi.text.trim().isEmpty || latitude == null || longitude == null)",
-                            "if (latitude == null || longitude == null)")
-              s = s.replace("'Enter Wi-Fi names and capture or enter valid campus coordinates.'",
-                            "'Capture or enter valid campus coordinates.'")
-              s = s.replace("Students must match both an approved Wi-Fi name and the GPS radius below. Wi-Fi names are case-sensitive.",
-                            "Students must be inside the approved GPS attendance area below and use the live session QR or code.")
-
-              lines = s.splitlines()
-              for _ in range(10):
-                  hits = [i for i, line in enumerate(lines) if "_wifi" in line and "controller:" in line]
-                  if not hits:
-                      break
-                  hit = hits[0]
-                  start = None
-                  for i in range(hit, max(-1, hit - 50), -1):
-                      if "TextField(" in lines[i]:
-                          start = i
-                          break
-                  if start is None:
-                      raise SystemExit("Found Wi-Fi TextField controller but could not locate its TextField start")
-                  depth = 0
-                  end = None
-                  for j in range(start, min(len(lines), hit + 120)):
-                      depth += lines[j].count("(") - lines[j].count(")")
-                      if j > start and depth <= 0:
-                          end = j
-                          break
-                  if end is None:
-                      raise SystemExit("Found Wi-Fi TextField but could not safely determine its end")
-                  del lines[start:end + 1]
-              return "\n".join(lines) + "\n"
-
-          edit("lib/screens/admin_settings_page.dart", remove_admin_wifi)
-
-          edit("lib/screens/student_dashboard.dart", lambda s: re.sub(
-              r"\n\s*const RequirementRow\(\n\s*icon:\s*Icons\.wifi,\n\s*text:\s*'Connect to the approved classroom Wi-Fi',\n\s*\),",
-              "", s, count=1))
-
-          def rules(s):
-              s = s.replace("        && request.resource.data.wifiSsid in settings.allowedWifiSsids\n", "")
-              s = s.replace("'deviceId', 'wifiSsid', 'location', 'accuracyMeters', 'checkedAt'",
-                            "'deviceId', 'location', 'accuracyMeters', 'checkedAt'")
-              return s
-          edit("firestore.rules", rules)
-
-          # Remove any remaining standalone Wi-Fi validation blocks that depended on
-          # wifiName/cleaned variables. Each removal is bounded and only targets the
-          # exact legacy guard, never GPS/session/device logic.
-          def remove_guard(s, marker):
-              lines = s.splitlines()
-              while True:
-                  hit = next((i for i, line in enumerate(lines) if marker in line), None)
-                  if hit is None:
-                      return "\n".join(lines) + "\n"
-                  start = None
-                  for i in range(hit, max(-1, hit - 30), -1):
-                      if re.match(r"^\s*if\s*\(", lines[i]):
-                          start = i
-                          break
-                  if start is None:
-                      raise SystemExit(f"Could not safely locate guard for {marker}")
-                  depth = 0
-                  end = None
-                  for j in range(start, min(len(lines), hit + 80)):
-                      depth += lines[j].count("{") - lines[j].count("}")
-                      if j > start and depth <= 0:
-                          end = j
-                          break
-                  if end is None:
-                      raise SystemExit(f"Could not safely determine end of guard for {marker}")
-                  del lines[start:end + 1]
-
-          svc = Path("lib/services/attendance_service.dart").read_text(encoding="utf-8")
-          svc = remove_guard(svc, "if (cleaned.isEmpty)")
-          svc = remove_guard(svc, "if (wifiName == null || wifiName.isEmpty)")
-          # Remove any orphaned Wi-Fi normalization chain left without its declaration.
-          lines = svc.splitlines()
-          out = []
-          skip_chain = False
-          for line in lines:
-              stripped = line.strip()
-              if "?.replaceAll" in stripped or stripped == ".trim();":
-                  continue
-              out.append(line)
-          svc = "\n".join(out) + "\n"
-          Path("lib/services/attendance_service.dart").write_text(svc, encoding="utf-8")
-
-          # Hard validation: Wi-Fi must not remain in the attendance decision path.
-          for path in ["lib/services/attendance_service.dart", "firestore.rules"]:
-              text = Path(path).read_text(encoding="utf-8")
-              if re.search(r"network_info_plus|getWifiName|_networkInfo|wifiSsid|allowedWifiSsids", text):
-                  raise SystemExit(f"Wi-Fi attendance reference remains in {path}")
-          print("Wi-Fi verification removed. GPS, QR/code, sessions, device checks and other checks are preserved.")
-          PY
-
-      - name: Apply named-session attendance percentage update only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: python3 "${{ github.workspace }}/scripts/apply_web_named_session_percentages.py"
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.4'
-          channel: stable
-          cache: true
-
-      - name: Configure Web platform
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: flutter create . --platforms=web
-
-      - name: Add immediate Web loading screen only
-        working-directory: ${{ env.PROJECT_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("web/index.html")
-          if not p.exists():
-              raise SystemExit("web/index.html not found")
-          s = p.read_text(encoding="utf-8")
-          loader = '''
-          <style id="uict-startup-loader-style">
-            #uict-startup-loader {
-              position: fixed;
-              inset: 0;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              background: #ffffff;
-              color: #0B1F3A;
-              font-family: Arial, sans-serif;
-              z-index: 2147483647;
-            }
-            #uict-startup-loader .title {
-              font-size: 28px;
-              font-weight: 800;
-              letter-spacing: .2px;
-            }
-            #uict-startup-loader .loading {
-              margin-top: 10px;
-              font-size: 16px;
-            }
-          </style>
-          <div id="uict-startup-loader" aria-label="UICT ATTENDANCE Loading">
-            <div class="title">UICT ATTENDANCE</div>
-            <div class="loading">Loading…</div>
-          </div>
-          '''
-          if "id=\"uict-startup-loader\"" not in s:
-              s = s.replace("</head>", loader + "\n</head>", 1)
-          remove_script = '''
-          <script>
-            (function () {
-              function removeLoader() {
-                var el = document.getElementById('uict-startup-loader');
-                if (el) el.remove();
+          rm -rf maintenance
+          mkdir -p maintenance
+          cat > maintenance/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="robots" content="noindex,nofollow">
+            <title>UICT ATTENDANCE — Maintenance</title>
+            <style>
+              * { box-sizing: border-box; }
+              body {
+                margin: 0;
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+                background: #f7f9fc;
+                color: #0B1F3A;
+                font-family: Arial, Helvetica, sans-serif;
+                text-align: center;
               }
-              window.addEventListener('flutter-first-frame', removeLoader, { once: true });
-              window.addEventListener('load', function () {
-                setTimeout(removeLoader, 15000);
-              }, { once: true });
-            })();
-          </script>
-          '''
-          if "flutter-first-frame" not in s:
-              s = s.replace("</body>", remove_script + "\n</body>", 1)
-          p.write_text(s, encoding="utf-8")
-          if "UICT ATTENDANCE" not in s or "Loading…" not in s:
-              raise SystemExit("Startup loading screen verification failed")
-          print("Immediate UICT ATTENDANCE Loading… screen added to Web index.")
-          PY
+              .card {
+                width: min(520px, 100%);
+                padding: 42px 28px;
+                background: #fff;
+                border-radius: 18px;
+                box-shadow: 0 10px 35px rgba(11,31,58,.10);
+              }
+              .title { font-size: 30px; font-weight: 800; margin-bottom: 18px; }
+              .status { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+              .message {
+                margin: 0 auto;
+                max-width: 430px;
+                color: #526174;
+                font-size: 16px;
+                line-height: 1.6;
+              }
+              .brand { margin-top: 26px; font-size: 13px; color: #7a8798; }
+            </style>
+          </head>
+          <body>
+            <main class="card">
+              <div class="title">UICT ATTENDANCE</div>
+              <div class="status">Temporarily unavailable</div>
+              <p class="message">
+                The web version is currently under maintenance while we make improvements.
+                Please check back later.
+              </p>
+              <div class="brand">Built by DIGITAL DYNAMOS</div>
+            </main>
+          </body>
+          </html>
+          HTML
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Configure Firebase Web non-interactively
-        working-directory: ${{ env.PROJECT_ROOT }}
+      - name: Deploy maintenance page
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         shell: bash
@@ -528,122 +91,34 @@ jobs:
           : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-
-          firebase apps:list --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-apps.json"
-
-          WEB_APP_ID="$(python3 - "$RUNNER_TEMP/firebase-apps.json" <<'PY'
-          import json, sys
-          d=json.load(open(sys.argv[1]))
-          result=d.get("result", d)
-          if isinstance(result, list):
-              apps=result
-          elif isinstance(result, dict):
-              apps=result.get("apps", [])
-          else:
-              apps=[]
-          web=[a for a in apps if str(a.get("platform","")).upper() in ("WEB","WEB_APP")]
-          if not web:
-              raise SystemExit("No Firebase Web app is registered in attendence-uict-bbit")
-          print(web[0]["appId"])
-          PY
-          )"
-          test -n "$WEB_APP_ID"
-
-          firebase apps:sdkconfig WEB "$WEB_APP_ID" --project attendence-uict-bbit --json > "$RUNNER_TEMP/firebase-web-config.json"
-
-          python3 - "$RUNNER_TEMP/firebase-web-config.json" <<'PY'
-          import json, sys
-          from pathlib import Path
-          cfg=json.load(open(sys.argv[1]))
-          cfg=cfg.get("result", cfg)
-          if isinstance(cfg, dict) and "sdkConfig" in cfg:
-              cfg=cfg["sdkConfig"]
-          if isinstance(cfg, list):
-              cfg=cfg[0] if cfg else {}
-          web=cfg.get("configuration") or cfg.get("web") or cfg
-          required=["apiKey","appId","messagingSenderId","projectId"]
-          missing=[k for k in required if not web.get(k)]
-          if missing:
-              raise SystemExit("Missing Firebase Web config fields: "+", ".join(missing))
-          def dart(v): return json.dumps(v)
-          lines=[
-              "import 'package:firebase_core/firebase_core.dart';",
-              "",
-              "class DefaultFirebaseOptions {",
-              "  static FirebaseOptions get currentPlatform => web;",
-              "",
-              "  static const FirebaseOptions web = FirebaseOptions(",
-              f"    apiKey: {dart(web['apiKey'])},",
-              f"    appId: {dart(web['appId'])},",
-              f"    messagingSenderId: {dart(web['messagingSenderId'])},",
-              f"    projectId: {dart(web['projectId'])},",
-          ]
-          for k in ["authDomain","storageBucket","measurementId"]:
-              if web.get(k):
-                  lines.append(f"    {k}: {dart(web[k])},")
-          lines += ["  );", "}", ""]
-          out=Path("lib/firebase_options.dart")
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_text("\n".join(lines))
-          print("Generated", out)
-          PY
-
-          python3 - <<'PY'
-          from pathlib import Path
-          root=Path(".")
-          opts=root/"lib"/"firebase_options.dart"
-          if not opts.exists():
-              raise SystemExit("firebase_options.dart was not generated")
-          target=None
-          for p in root.rglob("*.dart"):
-              if p.name == "firebase_options.dart":
-                  continue
-              t=p.read_text(errors="ignore")
-              if "Firebase.initializeApp()" in t:
-                  target=p
-                  break
-          if target is None:
-              raise SystemExit("No Firebase.initializeApp() call found")
-          text=target.read_text()
-          rel=Path(__import__("os").path.relpath(opts, target.parent)).as_posix()
-          imp=f"import '{rel}';"
-          if imp not in text:
-              lines=text.splitlines()
-              i=0
-              while i<len(lines) and (lines[i].startswith("import ") or lines[i].strip()=="" or lines[i].startswith("///") or lines[i].startswith("//")):
-                  i+=1
-              lines.insert(i, imp)
-              text="\n".join(lines)+("\n" if text.endswith("\n") else "")
-          text=text.replace("Firebase.initializeApp()", "Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)")
-          target.write_text(text)
-          print(f"Configured Firebase initialization in {target}")
-          PY
-
-      - name: Get dependencies
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: flutter pub get
-
-      - name: Build Web
-        working-directory: ${{ env.PROJECT_ROOT }}
-        run: flutter build web --release
-
-      - name: Deploy Web to Firebase Hosting
-        working-directory: ${{ env.PROJECT_ROOT }}
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          : "${FIREBASE_SERVICE_ACCOUNT:?Missing FIREBASE_SERVICE_ACCOUNT secret}"
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          printf '%s\n' '{"projects":{"default":"attendence-uict-bbit"},"targets":{"attendence-uict-bbit":{"hosting":{"uict-site":["attendence-uict-bbit"]}}}}' > .firebaserc
-          printf '%s\n' '{"hosting":{"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"],"cleanUrls":false,"headers":[{"source":"**","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]}]}}' > firebase.json
+          cat > firebase.json <<'JSON'
+          {
+            "hosting": {
+              "public": "maintenance",
+              "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+              "cleanUrls": false,
+              "headers": [
+                {
+                  "source": "**",
+                  "headers": [
+                    {
+                      "key": "Cache-Control",
+                      "value": "no-store, no-cache, must-revalidate, max-age=0"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+          JSON
+          cat > .firebaserc <<'JSON'
+          {
+            "projects": {"default": "attendence-uict-bbit"},
+            "targets": {
+              "attendence-uict-bbit": {
+                "hosting": {"uict-site": ["attendence-uict-bbit"]}
+              }
+            }
+          }
+          JSON
           firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
-
-      - name: Upload Web artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: uict-attendance-web
-          path: ${{ env.PROJECT_ROOT }}/build/web
-          if-no-files-found: error
