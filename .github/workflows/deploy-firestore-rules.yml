@@ -43,7 +43,7 @@ jobs:
 
           s = p.read_text(encoding="utf-8")
 
-          wifi_rule = "        && request.resource.data.wifiSsid in settings.allowedWifiSsids\\n"
+          wifi_rule = "        && request.resource.data.wifiSsid in settings.allowedWifiSsids\n"
           if wifi_rule not in s:
               raise SystemExit("Expected Wi-Fi attendance rule was not found; refusing to publish an unverified rules change.")
           s = s.replace(wifi_rule, "", 1)
