@@ -1,0 +1,32 @@
+name: Inspect Firestore Rules Source
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Extract source and upload rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          ARCHIVE="$(find . -maxdepth 1 -type f -name 'UICT_ATTENDANCE_Source_*.zip' | sort -V | tail -n 1)"
+          test -n "$ARCHIVE"
+          unzip -q "$ARCHIVE" -d source
+          RULES="$(find source -name firestore.rules -type f -print -quit)"
+          test -n "$RULES"
+          cp "$RULES" firestore.rules.inspect
+          sed -n '1,260p' "$RULES"
+      - name: Upload rules artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firestore-rules-source
+          path: firestore.rules.inspect
+          retention-days: 7
