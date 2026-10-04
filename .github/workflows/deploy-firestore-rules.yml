@@ -33,7 +33,7 @@ jobs:
           test -n "$ROOT"
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
 
-      - name: Remove only Wi-Fi attendance requirement from Firestore rules
+      - name: Remove only Wi-Fi attendance requirement and stale display-field equality checks
         working-directory: ${{ env.PROJECT_ROOT }}
         shell: bash
         run: |
@@ -67,6 +67,7 @@ jobs:
               "proofType",
               "deviceId",
               "accuracyMeters",
+              "location.distance(settings.campusLocation)",
               "checkedAt",
           ]
           missing = [x for x in required if x not in s]
@@ -74,7 +75,7 @@ jobs:
               raise SystemExit("Safety check failed; required attendance security checks are missing: " + ", ".join(missing))
 
           p.write_text(s, encoding="utf-8")
-          print("Verified rules-only change: Wi-Fi requirement removed; other attendance security checks preserved.")
+          print("Verified targeted rules change: Wi-Fi and stale display-field equality checks removed; identity, session, proof, device, GPS and timestamp checks preserved.")
           PY
 
       - name: Install Firebase CLI
