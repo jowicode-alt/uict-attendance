@@ -210,9 +210,9 @@ service cloud.firestore {
       allow delete: if false;
 
       match /records/{studentId} {
-        allow read: if isAdmin()
-          || (isSelf(studentId)
-            && resource.data.studentUid == request.auth.uid);
+        // A student may check whether their own record exists, even before creation.
+        allow get: if isAdmin() || isSelf(studentId);
+        allow list: if isAdmin();
         allow create: if isAdmin()
           || validStudentAttendance(sessionId, studentId);
         allow update, delete: if isAdmin();
