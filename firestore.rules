@@ -131,7 +131,14 @@ service cloud.firestore {
 
     match /system/attendanceState {
       allow read: if isAdmin();
-      allow create, update: if isAdmin();
+      allow create: if isAdmin();
+      // Only the administrator who opened an open session may close it.
+      // Keep openedBy immutable during updates so another admin cannot take ownership first.
+      allow update: if isAdmin()
+        && request.resource.data.get('openedBy', null) == resource.data.get('openedBy', null)
+        && (resource.data.get('status', null) != 'open'
+          || request.resource.data.get('status', null) != 'closed'
+          || resource.data.get('openedBy', null) == request.auth.uid);
       allow delete: if false;
     }
 
