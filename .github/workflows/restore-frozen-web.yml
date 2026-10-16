@@ -33,8 +33,8 @@ jobs:
 
           js = Path("web/main.dart.js")
           text = js.read_text(encoding="utf-8")
-          old = "Secure classroom attendance using verified Wi-Fi,gps,registered phones and live session codes."
-          new = "Secure classroom attendance using verified,gps,registered phones and live session codes."
+          old = "Secure classroom attendance using verified Wi-Fi, GPS, registered phones and live session codes."
+          new = "Secure classroom attendance using verified GPS, registered phones and live session codes."
           count = text.count(old)
           if count != 1:
               raise SystemExit(f"Expected exactly one login sentence in build #76, found {count}; refusing to deploy.")
