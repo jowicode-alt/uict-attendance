@@ -24,6 +24,27 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 36767392386
 
+      - name: Remove only Wi-Fi from the frozen login sentence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          js = Path("web/main.dart.js")
+          text = js.read_text(encoding="utf-8")
+          old = "Secure classroom attendance using verified Wi-Fi,gps,registered phones and live session codes."
+          new = "Secure classroom attendance using verified,gps,registered phones and live session codes."
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"Expected exactly one login sentence in build #76, found {count}; refusing to deploy.")
+          js.write_text(text.replace(old, new, 1), encoding="utf-8")
+          check = js.read_text(encoding="utf-8")
+          if old in check or new not in check:
+              raise SystemExit("Login sentence verification failed; refusing to deploy.")
+          print("Verified: only the Wi-Fi word and its preceding space were removed from the exact login sentence.")
+          PY
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
