@@ -45,6 +45,19 @@ jobs:
           print("Verified: only the Wi-Fi word and its preceding space were removed from the exact login sentence.")
           PY
 
+      - name: Add separate Admin Dashboard page
+        uses: actions/checkout@v4
+        with:
+          path: dashboard-source
+      - name: Copy dashboard into web deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dashboard-source/admin-dashboard.html
+          cp dashboard-source/admin-dashboard.html web/admin-dashboard.html
+          test -s web/admin-dashboard.html
+          echo "Separate admin dashboard page is included in web-only deployment."
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
