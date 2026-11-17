@@ -77,3 +77,4 @@ jobs:
           firebase deploy --only hosting:attendence-uict-bbit --project attendence-uict-bbit --non-interactive
 
 # Manual restoration trigger refreshed 2026-10-04.
+# Dashboard-only source refresh: redeploy frozen Web build #76 with the current admin-dashboard.html.
