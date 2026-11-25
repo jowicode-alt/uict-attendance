@@ -43,6 +43,17 @@ jobs:
           if old in check or new not in check:
               raise SystemExit("Login sentence verification failed; refusing to deploy.")
           print("Verified: only the Wi-Fi word and its preceding space were removed from the exact login sentence.")
+
+          settings_old = "Wi-Fi names, campus GPS and radius"
+          settings_new = "Campus GPS and radius"
+          settings_count = check.count(settings_old)
+          if settings_count != 1:
+              raise SystemExit(f"Expected exactly one Attendance Settings subtitle in build #76, found {settings_count}; refusing to deploy.")
+          js.write_text(check.replace(settings_old, settings_new, 1), encoding="utf-8")
+          final_text = js.read_text(encoding="utf-8")
+          if settings_old in final_text or settings_new not in final_text:
+              raise SystemExit("Attendance Settings subtitle verification failed; refusing to deploy.")
+          print("Verified: removed Wi-Fi names from the Attendance Settings subtitle only.")
           PY
 
       - name: Add separate Admin Dashboard page
